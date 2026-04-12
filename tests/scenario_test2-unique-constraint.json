@@ -1,0 +1,54 @@
+[
+  {
+    "Source": "192.168.65.1:39998",
+    "Destination": "localhost",
+    "RequestBody": "{\"data\":{\"name\":\"unique-test-item-2024\",\"type\":\"content\"}}",
+    "ResponseBody": "{\"data\":{\"id\":1,\"documentId\":\"test2-doc-id\",\"name\":\"unique-test-item-2024\",\"type\":\"content\"}}",
+    "RequestHeaders": {
+      "Content-Type": [
+        "application/json"
+      ],
+      "Authorization": [
+        "Bearer SKYRAMP_PLACEHOLDER_TOKEN"
+      ]
+    },
+    "ResponseHeaders": {
+      "Content-Type": [
+        "application/json"
+      ]
+    },
+    "Method": "POST",
+    "Path": "/test2",
+    "QueryParams": {},
+    "StatusCode": 201,
+    "Port": 1337,
+    "Timestamp": "2026-04-12T23:47:52.269Z",
+    "Scheme": "http"
+  },
+  {
+    "Source": "192.168.65.1:39998",
+    "Destination": "localhost",
+    "RequestBody": "{\"data\":{\"name\":\"unique-test-item-2024\",\"type\":\"content\"}}",
+    "ResponseBody": "{\"error\":{\"status\":409,\"name\":\"ApplicationError\",\"message\":\"This attribute must be unique\"}}",
+    "RequestHeaders": {
+      "Content-Type": [
+        "application/json"
+      ],
+      "Authorization": [
+        "Bearer SKYRAMP_PLACEHOLDER_TOKEN"
+      ]
+    },
+    "ResponseHeaders": {
+      "Content-Type": [
+        "application/json"
+      ]
+    },
+    "Method": "POST",
+    "Path": "/test2",
+    "QueryParams": {},
+    "StatusCode": 409,
+    "Port": 1337,
+    "Timestamp": "2026-04-12T23:47:52.269Z",
+    "Scheme": "http"
+  }
+]
