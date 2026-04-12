@@ -1,0 +1,19 @@
+### What does it do?
+
+- renames `addBodyParams` to `addInputParams`
+- fixes multiple bugs preventing `addInputParams` and `addQueryParams` from working when done in `register`
+- no longer limit it to content-api routes (removes useless check)
+
+### Why is it needed?
+
+- feature actually works now (we don't release a broken feature)
+- more accurate name; we actually validate `body.data` not `body` itself
+- `body` is almost never used in Strapi, we use `body.data` for create/update; if we find the need later, we could add an actual `addBodyParams` that allows that, but for now we will not include it
+
+### How to test it?
+
+Provide information about the environment and the path to verify the behaviour.
+
+### Related issue(s)/PR(s)
+
+Let us know if this is related to any issue/pull request
