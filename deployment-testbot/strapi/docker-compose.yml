@@ -1,0 +1,61 @@
+version: '3.8'
+
+# Strapi SUT for TestBot
+# Builds from source to support PR-level code changes.
+# Uses PostgreSQL 16 (recommended for production Strapi deployments).
+
+services:
+  strapi:
+    build:
+      context: ${STRAPI_REPO_PATH:-.}
+      dockerfile: ${STRAPI_DOCKERFILE:-./deployment-testbot/strapi/Dockerfile}
+    container_name: testbot-strapi
+    ports:
+      - "1337:1337"
+    environment:
+      - HOST=0.0.0.0
+      - PORT=1337
+      - APP_KEYS=toBeModified1,toBeModified2,toBeModified3,toBeModified4
+      - API_TOKEN_SALT=toBeModifiedApiTokenSalt
+      - ADMIN_JWT_SECRET=toBeModifiedAdminJwtSecret
+      - TRANSFER_TOKEN_SALT=toBeModifiedTransferTokenSalt
+      - JWT_SECRET=toBeModifiedJwtSecret
+      - DATABASE_CLIENT=postgres
+      - DATABASE_HOST=postgres
+      - DATABASE_PORT=5432
+      - DATABASE_NAME=strapi
+      - DATABASE_USERNAME=strapi
+      - DATABASE_PASSWORD=strapi
+      - DATABASE_SSL=false
+      - NODE_ENV=development
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:1337/_health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: testbot-strapi-postgres
+    environment:
+      - POSTGRES_USER=strapi
+      - POSTGRES_PASSWORD=strapi
+      - POSTGRES_DB=strapi
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U strapi"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
