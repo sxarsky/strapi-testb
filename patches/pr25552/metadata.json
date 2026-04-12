@@ -1,0 +1,9 @@
+{
+  "pr_number": 25552,
+  "title": "fix: feature works and rename addBodyParams to addInputParams",
+  "merge_commit": "7786d4dcdeec90570cdc8c2473e62c6a15b72dd6",
+  "merged_at": "2026-02-25T16:34:56Z",
+  "upstream_repo": "strapi/strapi",
+  "extracted_at": "2026-04-12T23:59:27Z",
+  "body": "### What does it do?\r\n\r\n- renames `addBodyParams` to `addInputParams`\r\n- fixes multiple bugs preventing `addInputParams` and `addQueryParams` from working when done in `register`\r\n- no longer limit it to content-api routes (removes useless check)\r\n\r\n### Why is it needed?\r\n\r\n- feature actually works now (we don't release a broken feature)\r\n- more accurate name; we actually validate `body.data` not `body` itself\r\n- `body` is almost never used in Strapi, we use `body.data` for create/update; if we find the need later, we could add an actual `addBodyParams` that allows that, but for now we will not include it\r\n\r\n### How to test it?\r\n\r\nProvide information about the environment and the path to verify the behaviour.\r\n\r\n### Related issue(s)/PR(s)\r\n\r\nLet us know if this is related to any issue/pull request\r"
+}

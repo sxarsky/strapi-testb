@@ -1,0 +1,8 @@
+packages/core/core/src/services/__tests__/content-api-permissions.test.ts
+packages/core/openapi/__tests__/operation-assemblers.test.ts
+packages/core/utils/src/__tests__/sanitize-input.test.ts
+packages/core/utils/src/__tests__/validate-input.test.ts
+tests/api/core/strapi/api/openapi-extra-params.test.api.ts
+tests/api/core/strapi/api/validate/validate-query.test.api.js
+tests/api/core/strapi/api/validate/validate-with-exported-zod.test.api.js
+tests/api/core/strapi/document-service/validation/validation.test.api.ts

@@ -1,0 +1,14 @@
+examples/getstarted/src/index.js
+packages/core/core/src/services/content-api/index.ts
+packages/core/core/src/services/document-service/repository.ts
+packages/core/core/src/services/server/register-routes.ts
+packages/core/types/src/core/strapi.ts
+packages/core/types/src/modules/content-api.ts
+packages/core/utils/src/content-api-constants.ts
+packages/core/utils/src/content-api-route-params.ts
+packages/core/utils/src/index.ts
+packages/core/utils/src/sanitize/index.ts
+packages/core/utils/src/traverse-entity.ts
+packages/core/utils/src/validate/index.ts
+packages/core/utils/src/zod-schema.ts
+packages/utils/api-tests/strapi.js

@@ -1,0 +1,442 @@
+diff --git a/packages/core/core/src/services/__tests__/content-api-permissions.test.ts b/packages/core/core/src/services/__tests__/content-api-permissions.test.ts
+index 15673b58..323c0f75 100644
+--- a/packages/core/core/src/services/__tests__/content-api-permissions.test.ts
++++ b/packages/core/core/src/services/__tests__/content-api-permissions.test.ts
+@@ -308,7 +308,7 @@ describe('Content API - Permissions', () => {
+     });
+   });
+ 
+-  describe('addQueryParams / addBodyParams / applyExtraParamsToRoutes', () => {
++  describe('addQueryParams / addInputParams / applyExtraParamsToRoutes', () => {
+     const minimalStrapi = { ...strapiMock, apis: {}, plugins: {} } as any;
+ 
+     /** Minimal content-api route; pass request (and optionally method/path) to override. */
+@@ -338,8 +338,8 @@ describe('Content API - Permissions', () => {
+       );
+     });
+ 
+-    it('applyExtraParamsToRoutes throws when a route already has the body param', () => {
+-      contentAPI.addBodyParams({ clientMutationId: { schema: z.string() } });
++    it('applyExtraParamsToRoutes throws when a route already has the input param', () => {
++      contentAPI.addInputParams({ clientMutationId: { schema: z.string() } });
+       const route = contentAPIRoute({
+         method: 'POST',
+         request: { body: { 'application/json': z.object({ clientMutationId: z.string() }) } },
+@@ -356,10 +356,10 @@ describe('Content API - Permissions', () => {
+       );
+     });
+ 
+-    it('addBodyParams throws when the same param name is added twice', () => {
+-      contentAPI.addBodyParams({ clientMutationId: { schema: z.string() } });
+-      expect(() => contentAPI.addBodyParams({ clientMutationId: { schema: z.number() } })).toThrow(
+-        /contentAPI\.addBodyParams: param "clientMutationId" has already been added/
++    it('addInputParams throws when the same param name is added twice', () => {
++      contentAPI.addInputParams({ clientMutationId: { schema: z.string() } });
++      expect(() => contentAPI.addInputParams({ clientMutationId: { schema: z.number() } })).toThrow(
++        /contentAPI\.addInputParams: param "clientMutationId" has already been added/
+       );
+     });
+ 
+@@ -369,8 +369,8 @@ describe('Content API - Permissions', () => {
+       );
+     });
+ 
+-    it.each(['id', 'documentId'])('addBodyParams throws when param "%s" is reserved', (param) => {
+-      expect(() => contentAPI.addBodyParams({ [param]: { schema: z.string() } })).toThrow(
++    it.each(['id', 'documentId'])('addInputParams throws when param "%s" is reserved', (param) => {
++      expect(() => contentAPI.addInputParams({ [param]: { schema: z.string() } })).toThrow(
+         new RegExp(`param "${param}" is reserved by Strapi; use a different name`)
+       );
+     });
+@@ -404,8 +404,8 @@ describe('Content API - Permissions', () => {
+       expect(searchSchema.safeParse('foo').success).toBe(true);
+     });
+ 
+-    it('addBodyParams accepts schema as function that receives z and returns schema', () => {
+-      contentAPI.addBodyParams({
++    it('addInputParams accepts schema as function that receives z and returns schema', () => {
++      contentAPI.addInputParams({
+         clientMutationId: { schema: (zInstance) => zInstance.string().max(100).optional() },
+       });
+       const route = contentAPIRoute({
+diff --git a/packages/core/openapi/__tests__/operation-assemblers.test.ts b/packages/core/openapi/__tests__/operation-assemblers.test.ts
+index a9a7b13f..76f2dfc6 100644
+--- a/packages/core/openapi/__tests__/operation-assemblers.test.ts
++++ b/packages/core/openapi/__tests__/operation-assemblers.test.ts
+@@ -9,10 +9,10 @@ import {
+ import { OperationContextFactory } from '../src/context';
+ 
+ /**
+- * Params registered via strapi.contentAPI.addQueryParams / addBodyParams are
++ * Params registered via strapi.contentAPI.addQueryParams / addInputParams are
+  * merged into each route's request.query and request.body (by the content-api
+  * service). The OpenAPI spec generator reads route.request when assembling
+- * parameters and body. These tests (1) call addQueryParams/addBodyParams,
++ * parameters and body. These tests (1) call addQueryParams/addInputParams,
+  * (2) simulate merging those params into routes, (3) run the assemblers and
+  * assert the generated spec includes the params.
+  */
+@@ -24,7 +24,7 @@ type ResolvedQueryParamEntry = {
+   matchRoute?: (r: Core.Route) => boolean;
+ };
+ /** Resolved entry shape (param + schema + matchRoute) mirroring the real content-api service storage. */
+-type ResolvedBodyParamEntry = {
++type ResolvedInputParamEntry = {
+   param: string;
+   schema: z.ZodType;
+   matchRoute?: (r: Core.Route) => boolean;
+@@ -42,13 +42,13 @@ const contentAPIRoute = (overrides: Partial<Core.Route> = {}): Core.Route =>
+ 
+ function createMockContentAPI() {
+   const extraQueryParams: ResolvedQueryParamEntry[] = [];
+-  const extraBodyParams: ResolvedBodyParamEntry[] = [];
++  const extraInputParams: ResolvedInputParamEntry[] = [];
+   return {
+     addQueryParams(options: Modules.ContentAPI.AddQueryParamsOptions) {
+       Object.entries(options).forEach(([param, rest]) => extraQueryParams.push({ param, ...rest }));
+     },
+-    addBodyParams(options: Modules.ContentAPI.AddBodyParamsOptions) {
+-      Object.entries(options).forEach(([param, rest]) => extraBodyParams.push({ param, ...rest }));
++    addInputParams(options: Modules.ContentAPI.AddInputParamsOptions) {
++      Object.entries(options).forEach(([param, rest]) => extraInputParams.push({ param, ...rest }));
+     },
+     mergeQueryParamsIntoRoute(route: Core.Route): Core.Route {
+       const query = { ...route.request?.query } as Record<string, z.ZodType>;
+@@ -59,10 +59,10 @@ function createMockContentAPI() {
+       }
+       return { ...route, request: { ...route.request, query } };
+     },
+-    mergeBodyParamsIntoRoute(route: Core.Route): Core.Route {
++    mergeInputParamsIntoRoute(route: Core.Route): Core.Route {
+       const jsonKey = 'application/json';
+       const extra: Record<string, z.ZodType> = {};
+-      for (const { param, schema, matchRoute } of extraBodyParams) {
++      for (const { param, schema, matchRoute } of extraInputParams) {
+         if (!matchRoute || matchRoute(route)) {
+           extra[param] = schema;
+         }
+@@ -73,7 +73,7 @@ function createMockContentAPI() {
+   };
+ }
+ 
+-describe('OpenAPI operation assemblers – params added via addQueryParams / addBodyParams', () => {
++describe('OpenAPI operation assemblers – params added via addQueryParams / addInputParams', () => {
+   const createOperationContext = () => {
+     const factory = new OperationContextFactory();
+     return factory.create({ strapi: {} as Core.Strapi, routes: [] }, {});
+@@ -139,13 +139,13 @@ describe('OpenAPI operation assemblers – params added via addQueryParams / add
+   });
+ 
+   describe('BodyAssembler', () => {
+-    it('includes in the spec body params registered with addBodyParams', () => {
++    it('includes in the spec input params registered with addInputParams', () => {
+       const contentAPI = createMockContentAPI();
+-      contentAPI.addBodyParams({
++      contentAPI.addInputParams({
+         clientMutationId: { schema: z.string().max(100).optional() },
+       });
+ 
+-      const route = contentAPI.mergeBodyParamsIntoRoute(
++      const route = contentAPI.mergeInputParamsIntoRoute(
+         contentAPIRoute({ method: 'POST', handler: 'api::article.article.create' })
+       );
+ 
+diff --git a/packages/core/utils/src/__tests__/sanitize-input.test.ts b/packages/core/utils/src/__tests__/sanitize-input.test.ts
+index e810d61c..387ee523 100644
+--- a/packages/core/utils/src/__tests__/sanitize-input.test.ts
++++ b/packages/core/utils/src/__tests__/sanitize-input.test.ts
+@@ -10,7 +10,7 @@ describe('sanitizeInput', () => {
+    * Extra params are sanitized via Zod safeParse; invalid values are removed.
+    */
+   describe('strictParams with route.request.body', () => {
+-    it('keeps extra body param from route when strictParams: true and Zod parses', async () => {
++    it('keeps extra input param from route when strictParams: true and Zod parses', async () => {
+       const route = {
+         request: {
+           body: {
+@@ -32,7 +32,7 @@ describe('sanitizeInput', () => {
+       expect(result).toHaveProperty('clientMutationId', 'foo');
+     });
+ 
+-    it('removes extra body param when Zod safeParse fails', async () => {
++    it('removes extra input param when Zod safeParse fails', async () => {
+       const route = {
+         request: {
+           body: {
+@@ -76,7 +76,7 @@ describe('sanitizeInput', () => {
+       expect(result).not.toHaveProperty('otherExtraKey');
+     });
+ 
+-    it('sanitizes extra body param that is a nested object (non-scalar)', async () => {
++    it('sanitizes extra input param that is a nested object (non-scalar)', async () => {
+       const route = {
+         request: {
+           body: {
+diff --git a/packages/core/utils/src/__tests__/validate-input.test.ts b/packages/core/utils/src/__tests__/validate-input.test.ts
+index ba44ef92..a7cd10e0 100644
+--- a/packages/core/utils/src/__tests__/validate-input.test.ts
++++ b/packages/core/utils/src/__tests__/validate-input.test.ts
+@@ -24,7 +24,7 @@ describe('validateInput', () => {
+    * Extra params are validated with Zod; invalid values throw ValidationError.
+    */
+   describe('route.request.body', () => {
+-    it('allows extra body param from route at root and Zod parses', async () => {
++    it('allows extra input param from route at root and Zod parses', async () => {
+       const route = {
+         request: {
+           body: {
+@@ -72,7 +72,7 @@ describe('validateInput', () => {
+       await expect(validators.input(input, schema, { route })).rejects.toThrow(ValidationError);
+     });
+ 
+-    it('allows extra body param that is a nested object (non-scalar)', async () => {
++    it('allows extra input param that is a nested object (non-scalar)', async () => {
+       const route = {
+         request: {
+           body: {
+@@ -88,7 +88,7 @@ describe('validateInput', () => {
+       await expect(validators.input(input, schema, { route })).resolves.not.toThrow();
+     });
+ 
+-    it('throws when extra body param object fails Zod parse', async () => {
++    it('throws when extra input param object fails Zod parse', async () => {
+       const route = {
+         request: {
+           body: {
+diff --git a/tests/api/core/strapi/api/openapi-extra-params.test.api.ts b/tests/api/core/strapi/api/openapi-extra-params.test.api.ts
+index 242af5f3..26b084ce 100644
+--- a/tests/api/core/strapi/api/openapi-extra-params.test.api.ts
++++ b/tests/api/core/strapi/api/openapi-extra-params.test.api.ts
+@@ -32,9 +32,12 @@ describe('OpenAPI – extra params from contentAPI.addQueryParams', () => {
+   let strapi: Awaited<ReturnType<typeof createStrapiInstance>>;
+ 
+   beforeAll(async () => {
+-    strapi = await createStrapiInstance();
+-    strapi.contentAPI.addQueryParams({
+-      search: { schema: z.string().max(200).optional() },
++    strapi = await createStrapiInstance({
++      register: ({ strapi: s }) => {
++        s.contentAPI.addQueryParams({
++          search: { schema: z.string().max(200).optional() },
++        });
++      },
+     });
+   });
+ 
+diff --git a/tests/api/core/strapi/api/validate/validate-query.test.api.js b/tests/api/core/strapi/api/validate/validate-query.test.api.js
+index 0f85b2e8..85e4f6d7 100644
+--- a/tests/api/core/strapi/api/validate/validate-query.test.api.js
++++ b/tests/api/core/strapi/api/validate/validate-query.test.api.js
+@@ -204,47 +204,95 @@ describe('Core API - Validate', () => {
+     });
+   });
+ 
+-  describe('contentAPI.addQueryParams (strictParams + real request)', () => {
+-    const z = require('zod/v4');
++  describe('contentAPI.addQueryParams and addInputParams (strictParams + real request)', () => {
++    let bodyParamTestDocumentId;
+ 
+     beforeAll(() => {
+       strapi.contentAPI.addQueryParams({
+-        search: {
++        extraParam: {
+           schema: (zInstance) => zInstance.string().max(200).optional(),
+           matchRoute: (route) => route.method === 'GET' && route.path === '/documents',
+         },
+       });
+-      // Routes were already registered at load(); re-apply so they get the new param.
+-      // Ignore "param already exists" when the same route object appears in multiple routers.
++      strapi.contentAPI.addInputParams({
++        clientMutationId: {
++          schema: (zInstance) => zInstance.string().max(100).optional(),
++          matchRoute: (route) => route.method === 'POST' && route.path === '/documents',
++        },
++      });
++    });
++
++    afterEach(async () => {
++      strapi.config.set('api.rest.strictParams', undefined);
++      strapi.config.set('api.documents.strictParams', undefined);
++      if (bodyParamTestDocumentId) {
++        await strapi.documents('api::document.document').delete({
++          documentId: bodyParamTestDocumentId,
++          locale: '*',
++        });
++        bodyParamTestDocumentId = null;
++      }
++    });
++
++    const applyExtraParamsToAllRouters = () => {
+       for (const apiName of Object.keys(strapi.apis)) {
+         const api = strapi.api(apiName);
+         const routers = api.routes ?? {};
+         for (const router of Object.values(routers)) {
+           if (router.routes && Array.isArray(router.routes)) {
+-            try {
+-              strapi.contentAPI.applyExtraParamsToRoutes(router.routes);
+-            } catch (err) {
+-              if (!/param "search" already exists on route/.test(err.message)) {
+-                throw err;
+-              }
+-            }
++            strapi.contentAPI.applyExtraParamsToRoutes(router.routes);
+           }
+         }
+       }
++    };
++
++    // Order matters: run "no apply" tests first, then apply once, then "after apply" tests.
++    it('returns 400 when strictParams is true and custom query param was registered but applyExtraParamsToRoutes has not been run', async () => {
++      strapi.config.set('api.rest.strictParams', true);
++      strapi.config.set('api.documents.strictParams', true);
++
++      const res = await rq.get('/api/documents', { qs: { extraParam: 'hello' } });
++
++      expect(res.status).toEqual(400);
+     });
+ 
+-    afterEach(() => {
+-      strapi.config.set('api.rest.strictParams', undefined);
++    it('returns 400 when strictParams is true and custom body param was registered but applyExtraParamsToRoutes has not been run', async () => {
++      strapi.config.set('api.rest.strictParams', true);
++
++      const res = await rq.post('/api/documents', {
++        body: {
++          data: { name: 'Body param test', clientMutationId: 'abc-123' },
++        },
++      });
++
++      expect(res.status).toEqual(400);
+     });
+ 
+-    it('returns 200 when strictParams is true and request includes custom query param registered via addQueryParams', async () => {
++    it('returns 200 when strictParams is true and request includes custom query param after applyExtraParamsToRoutes (as initRouting does)', async () => {
++      applyExtraParamsToAllRouters();
+       strapi.config.set('api.rest.strictParams', true);
++      strapi.config.set('api.documents.strictParams', true);
+ 
+-      const res = await rq.get('/api/documents', { qs: { search: 'hello' } });
++      const res = await rq.get('/api/documents', { qs: { extraParam: 'hello' } });
+ 
+       expect(res.status).toEqual(200);
+       expect(res.body.data).toBeDefined();
+     });
++
++    it('returns 201 when strictParams is true and request body includes custom body param after applyExtraParamsToRoutes (as initRouting does)', async () => {
++      strapi.config.set('api.rest.strictParams', true);
++
++      const res = await rq.post('/api/documents', {
++        body: {
++          data: { name: 'Body param test', clientMutationId: 'abc-123' },
++        },
++      });
++
++      expect(res.status).toEqual(201);
++      expect(res.body.data).toBeDefined();
++      expect(res.body.data.name).toBe('Body param test');
++      bodyParamTestDocumentId = res.body.data.documentId;
++    });
+   });
+ 
+   /**
+diff --git a/tests/api/core/strapi/api/validate/validate-with-exported-zod.test.api.js b/tests/api/core/strapi/api/validate/validate-with-exported-zod.test.api.js
+index 903b855f..2835e864 100644
+--- a/tests/api/core/strapi/api/validate/validate-with-exported-zod.test.api.js
++++ b/tests/api/core/strapi/api/validate/validate-with-exported-zod.test.api.js
+@@ -62,7 +62,7 @@ describe('Content API – schemas from exported @strapi/utils z (Zod v4)', () =>
+     await builder.cleanup();
+   });
+ 
+-  describe('addQueryParams / addBodyParams accept schemas from @strapi/utils', () => {
++  describe('addQueryParams / addInputParams accept schemas from @strapi/utils', () => {
+     it('addQueryParams accepts schema built with exported z and applyExtraParamsToRoutes succeeds', () => {
+       strapi.contentAPI.addQueryParams({
+         exportedZodSearch: { schema: z.string().max(200).optional() },
+@@ -79,8 +79,8 @@ describe('Content API – schemas from exported @strapi/utils z (Zod v4)', () =>
+       expect(route.request?.query).toHaveProperty('exportedZodSearch');
+     });
+ 
+-    it('addBodyParams accepts schema built with exported z and applyExtraParamsToRoutes succeeds', () => {
+-      strapi.contentAPI.addBodyParams({
++    it('addInputParams accepts schema built with exported z and applyExtraParamsToRoutes succeeds', () => {
++      strapi.contentAPI.addInputParams({
+         exportedZodClientId: { schema: z.string().max(100).optional() },
+       });
+ 
+diff --git a/tests/api/core/strapi/document-service/validation/validation.test.api.ts b/tests/api/core/strapi/document-service/validation/validation.test.api.ts
+index f4bfc010..496bedee 100644
+--- a/tests/api/core/strapi/document-service/validation/validation.test.api.ts
++++ b/tests/api/core/strapi/document-service/validation/validation.test.api.ts
+@@ -765,28 +765,25 @@ describe('Document Service Validations', () => {
+         strapi.config.set('api.documents.strictParams', undefined);
+       });
+ 
+-      it('should throw ValidationError when unrecognized root-level key is passed', async () => {
++      it('should strip unrecognized root-level keys and succeed (content API may pass known-but-unused params)', async () => {
+         strapi.config.set('api.documents.strictParams', true);
+ 
+-        await expect(
+-          strapi.documents(ARTICLE_UID).findMany({ where: { id: 1 } } as any)
+-        ).rejects.toThrow(errors.ValidationError);
+-
+-        await expect(
+-          strapi.documents(ARTICLE_UID).findMany({ where: { id: 1 } } as any)
+-        ).rejects.toThrow(/Unrecognized parameter\(s\) at root level/);
++        const result = await strapi.documents(ARTICLE_UID).findMany({ where: { id: 1 } } as any);
++        expect(result).toBeDefined();
++        expect(Array.isArray(result)).toBe(true);
++        // 'where' is not in ALLOWED_DOCUMENT_ROOT_PARAM_KEYS so it was stripped; query ran with default params
+       });
+ 
+-      it('should throw ValidationError for multiple unrecognized root-level keys', async () => {
++      it('should strip multiple unrecognized root-level keys and succeed', async () => {
+         strapi.config.set('api.documents.strictParams', true);
+ 
+-        await expect(
+-          strapi.documents(ARTICLE_UID).findMany({ foo: 'bar', baz: 123 } as any)
+-        ).rejects.toThrow(errors.ValidationError);
+-
+-        await expect(
+-          strapi.documents(ARTICLE_UID).findMany({ foo: 'bar', baz: 123 } as any)
+-        ).rejects.toThrow(/Unrecognized parameter\(s\) at root level/);
++        const result = await strapi.documents(ARTICLE_UID).findMany({
++          foo: 'bar',
++          baz: 123,
++        } as any);
++        expect(result).toBeDefined();
++        expect(Array.isArray(result)).toBe(true);
++        // foo and baz are stripped; query ran with default params
+       });
+ 
+       it('should accept only allowed root-level params', async () => {
+@@ -801,7 +798,7 @@ describe('Document Service Validations', () => {
+         expect(Array.isArray(result)).toBe(true);
+       });
+ 
+-      it('should accept allowed params including hasPublishedVersion and reject extra unrecognized keys', async () => {
++      it('should accept allowed params including hasPublishedVersion and strip extra unrecognized keys', async () => {
+         strapi.config.set('api.documents.strictParams', true);
+ 
+         const result = await strapi.documents(ARTICLE_UID).findMany({
+@@ -811,13 +808,14 @@ describe('Document Service Validations', () => {
+         expect(result).toBeDefined();
+         expect(Array.isArray(result)).toBe(true);
+ 
+-        await expect(
+-          strapi.documents(ARTICLE_UID).findMany({
+-            status: 'draft',
+-            hasPublishedVersion: false,
+-            unrecognizedKey: 'value',
+-          } as any)
+-        ).rejects.toThrow(errors.ValidationError);
++        const resultWithExtra = await strapi.documents(ARTICLE_UID).findMany({
++          status: 'draft',
++          hasPublishedVersion: false,
++          unrecognizedKey: 'value',
++        } as any);
++        expect(resultWithExtra).toBeDefined();
++        expect(Array.isArray(resultWithExtra)).toBe(true);
++        // unrecognizedKey is stripped; query ran with status and hasPublishedVersion only
+       });
+ 
+       it('should accept create with data param when strictParams is true', async () => {
