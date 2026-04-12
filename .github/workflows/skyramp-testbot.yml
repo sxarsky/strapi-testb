@@ -111,13 +111,10 @@ jobs:
           skyrampExecutorVersion: v1.3.14
 
           # --- SUT (System Under Test) Configuration ---
-          # Uncomment and configure these for your target application.
-          # See Skyramp TestBot docs for details on each option.
-          #
-          # targetSetupCommand: './deployment-testbot/setup.sh'     # Script to start your application
-          # targetReadyCheckCommand: 'curl -f http://localhost:8080/health'  # Health check endpoint
-          # targetReadyCheckTimeout: 90                              # Seconds to wait for ready check
-          # authTokenCommand: './deployment-testbot/get-token.sh'   # Script to obtain auth token (if needed)
+          targetSetupCommand: './deployment-testbot/strapi/setup.sh'
+          targetReadyCheckCommand: 'curl -f http://localhost:1337/_health'
+          targetReadyCheckTimeout: 90
+          authTokenCommand: './deployment-testbot/strapi/get-token.sh'
 
           testDirectory: 'tests'
           autoCommit: true
