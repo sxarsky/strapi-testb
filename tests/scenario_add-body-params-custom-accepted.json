@@ -1,0 +1,28 @@
+[
+  {
+    "Source": "192.168.65.1:39998",
+    "Destination": "localhost",
+    "RequestBody": "{\"data\": {\"title\": \"Custom Param Article\", \"slug\": \"custom-param-article-accepted\"}, \"clientMutationId\": \"mutation-abc-123\"}",
+    "ResponseBody": "{\"data\": {\"id\": 1, \"documentId\": \"abc123\", \"title\": \"Custom Param Article\", \"slug\": \"custom-param-article-accepted\"}}",
+    "RequestHeaders": {
+      "Content-Type": [
+        "application/json"
+      ],
+      "Authorization": [
+        "Bearer SKYRAMP_PLACEHOLDER_TOKEN"
+      ]
+    },
+    "ResponseHeaders": {
+      "Content-Type": [
+        "application/json"
+      ]
+    },
+    "Method": "POST",
+    "Path": "/api/articles",
+    "QueryParams": {},
+    "StatusCode": 201,
+    "Port": 443,
+    "Timestamp": "2026-04-13T04:26:49.917Z",
+    "Scheme": "https"
+  }
+]

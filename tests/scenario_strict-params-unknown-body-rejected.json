@@ -1,0 +1,28 @@
+[
+  {
+    "Source": "192.168.65.1:39998",
+    "Destination": "localhost",
+    "RequestBody": "{\"data\": {\"title\": \"Strict Params Test Article\", \"slug\": \"strict-params-test-article\"}, \"unknownTopLevelKey\": \"unexpected-value\"}",
+    "ResponseBody": "{\"error\": {\"status\": 400, \"name\": \"ValidationError\", \"message\": \"Unknown body param: unknownTopLevelKey\"}}",
+    "RequestHeaders": {
+      "Content-Type": [
+        "application/json"
+      ],
+      "Authorization": [
+        "Bearer SKYRAMP_PLACEHOLDER_TOKEN"
+      ]
+    },
+    "ResponseHeaders": {
+      "Content-Type": [
+        "application/json"
+      ]
+    },
+    "Method": "POST",
+    "Path": "/api/articles",
+    "QueryParams": {},
+    "StatusCode": 400,
+    "Port": 443,
+    "Timestamp": "2026-04-13T04:26:44.343Z",
+    "Scheme": "https"
+  }
+]
