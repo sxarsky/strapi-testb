@@ -1,0 +1,32 @@
+[
+  {
+    "Source": "192.168.65.1:39998",
+    "Destination": "localhost",
+    "RequestBody": "",
+    "ResponseBody": "{\"error\": {\"status\": 400, \"name\": \"ValidationError\", \"message\": \"Unknown query param: unknownParam\"}}",
+    "RequestHeaders": {
+      "Content-Type": [
+        "application/json"
+      ],
+      "Authorization": [
+        "Bearer SKYRAMP_PLACEHOLDER_TOKEN"
+      ]
+    },
+    "ResponseHeaders": {
+      "Content-Type": [
+        "application/json"
+      ]
+    },
+    "Method": "GET",
+    "Path": "/api/articles",
+    "QueryParams": {
+      "unknownParam": [
+        "unexpected-value"
+      ]
+    },
+    "StatusCode": 400,
+    "Port": 443,
+    "Timestamp": "2026-04-13T04:26:46.694Z",
+    "Scheme": "https"
+  }
+]
