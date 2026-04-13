@@ -1,0 +1,1365 @@
+diff --git a/packages/core/upload/admin/src/future/components/Drawer.tsx b/packages/core/upload/admin/src/future/components/Drawer.tsx
+index 80110b8a..1aefcd64 100644
+--- a/packages/core/upload/admin/src/future/components/Drawer.tsx
++++ b/packages/core/upload/admin/src/future/components/Drawer.tsx
+@@ -149,6 +149,7 @@ const DrawerBody = React.forwardRef<HTMLDivElement, DrawerBodyProps>(
+     <Dialog.Content
+       ref={ref}
+       forceMount
++      asChild
+       onPointerDownOutside={(e) => e.preventDefault()}
+       onInteractOutside={(e) => e.preventDefault()}
+       data-animation-direction={animationDirection}
+diff --git a/packages/core/upload/admin/src/future/components/UploadProgressDialog.tsx b/packages/core/upload/admin/src/future/components/UploadProgressDialog.tsx
+index fae5c6eb..a29f5559 100644
+--- a/packages/core/upload/admin/src/future/components/UploadProgressDialog.tsx
++++ b/packages/core/upload/admin/src/future/components/UploadProgressDialog.tsx
+@@ -52,8 +52,7 @@ const HeaderStatusIcon = styled(Flex)`
+   }
+ `;
+ 
+-const HeaderStatusWrapper = styled(Drawer.Title)`
+-  display: flex;
++const HeaderStatusWrapper = styled(Flex)`
+   align-items: center;
+ `;
+ 
+@@ -61,9 +60,17 @@ type HeaderStatusProps = {
+   status: 'uploading' | 'success' | 'error' | 'canceled';
+   progress?: number;
+   totalFiles: number;
++  successfulCount: number;
++  errorCount: number;
+ };
+ 
+-const HeaderStatus = ({ status, progress, totalFiles }: HeaderStatusProps) => {
++const HeaderStatus = ({
++  status,
++  progress,
++  totalFiles,
++  successfulCount,
++  errorCount,
++}: HeaderStatusProps) => {
+   const { formatMessage } = useIntl();
+ 
+   if (status === 'error') {
+@@ -87,6 +94,23 @@ const HeaderStatus = ({ status, progress, totalFiles }: HeaderStatusProps) => {
+   }
+ 
+   if (status === 'success') {
++    const subtitle =
++      errorCount > 0
++        ? formatMessage(
++            {
++              id: getTranslationKey('upload.progress.success.subtitle.withErrors'),
++              defaultMessage: '{successCount} uploaded, {errorCount} failed',
++            },
++            { successCount: successfulCount, errorCount }
++          )
++        : formatMessage(
++            {
++              id: getTranslationKey('upload.progress.success.subtitle'),
++              defaultMessage: '{count} files uploaded successfully',
++            },
++            { count: successfulCount }
++          );
++
+     return (
+       <HeaderStatusWrapper>
+         <HeaderStatusIcon background="success200">
+@@ -97,13 +121,7 @@ const HeaderStatus = ({ status, progress, totalFiles }: HeaderStatusProps) => {
+             id: getTranslationKey('upload.progress.success'),
+             defaultMessage: 'Upload successful!',
+           })}
+-          subtitle={formatMessage(
+-            {
+-              id: getTranslationKey('upload.progress.success.subtitle'),
+-              defaultMessage: '{count} files uploaded successfully',
+-            },
+-            { count: totalFiles }
+-          )}
++          subtitle={subtitle}
+         />
+       </HeaderStatusWrapper>
+     );
+@@ -188,7 +206,10 @@ const DialogHeader = ({ handleClose }: { handleClose: () => void }) => {
+   const isAllUploaded = isComplete && files.every((f) => f.status !== 'uploading');
+   const isAllErrored = isComplete && files.length > 0 && files.every((f) => f.status === 'error');
+   const hasCancelledFiles = files.some((f) => f.status === 'cancelled');
+-  const isSuccess = isComplete && isAllUploaded && !isAllErrored && !hasCancelledFiles;
++  const successfulCount = files.filter((f) => f.status === 'complete').length;
++  const errorCount = files.filter((f) => f.status === 'error').length;
++  // Success includes partial success (some files succeeded, even if some failed)
++  const isSuccess = isComplete && isAllUploaded && successfulCount > 0 && !hasCancelledFiles;
+   const status = ((): HeaderStatusProps['status'] => {
+     if (isAllErrored) return 'error';
+     if (isSuccess) return 'success';
+@@ -221,7 +242,13 @@ const DialogHeader = ({ handleClose }: { handleClose: () => void }) => {
+       margin={1}
+       hasRadius
+     >
+-      <HeaderStatus status={status} progress={progress} totalFiles={totalFiles} />
++      <HeaderStatus
++        status={status}
++        progress={progress}
++        totalFiles={totalFiles}
++        successfulCount={successfulCount}
++        errorCount={errorCount}
++      />
+       <Flex gap={1}>
+         {!isAllUploaded && (
+           <TextButton onClick={handleCancel} fontWeight="bold">
+diff --git a/packages/core/upload/admin/src/future/pages/Assets/AssetsPage.tsx b/packages/core/upload/admin/src/future/pages/Assets/AssetsPage.tsx
+index a103be18..d0ce5479 100644
+--- a/packages/core/upload/admin/src/future/pages/Assets/AssetsPage.tsx
++++ b/packages/core/upload/admin/src/future/pages/Assets/AssetsPage.tsx
+@@ -1,4 +1,4 @@
+-import { useRef, useState, useCallback, type ChangeEvent } from 'react';
++import { useRef, useCallback, useState, type ChangeEvent } from 'react';
+ 
+ import * as ToggleGroup from '@radix-ui/react-toggle-group';
+ import { Layouts, useElementOnScreen, usePersistentState } from '@strapi/admin/strapi-admin';
+@@ -11,11 +11,11 @@ import {
+   Typography,
+   VisuallyHidden,
+ } from '@strapi/design-system';
+-import { ChevronDown, Files, Folder, GridFour as GridIcon, List } from '@strapi/icons';
++import { ChevronDown, Files, Folder, GridFour as GridIcon, Link, List } from '@strapi/icons';
+ import { useIntl } from 'react-intl';
+ import { styled } from 'styled-components';
+ 
+-import { useUploadFilesStreamMutation } from '../../services/api';
++import { useUploadFilesStreamMutation, useUploadFromUrlsMutation } from '../../services/api';
+ import { useGetFoldersQuery } from '../../services/folders';
+ import { getTranslationKey } from '../../utils/translations';
+ 
+@@ -28,6 +28,7 @@ import { AssetsTable } from './components/AssetsTable';
+ import { CreateFolderDialog } from './components/CreateFolderDialog';
+ import { DropFilesMessage, DropZoneWithOverlay } from './components/DropZone/UploadDropZone';
+ import { UploadDropZoneProvider } from './components/DropZone/UploadDropZoneContext';
++import { ImportFromUrlDialog } from './components/ImportFromUrlDialog';
+ import { localStorageKeys, viewOptions } from './constants';
+ import { useFolderInfo } from './hooks/useFolderInfo';
+ import { useFolderNavigation } from './hooks/useFolderNavigation';
+@@ -198,12 +199,16 @@ export const AssetsPage = () => {
+   const [view, setView] = usePersistentState(localStorageKeys.view, viewOptions.GRID);
+   const isGridView = view === viewOptions.GRID;
+ 
++  // Dialog state
++  const [isUrlDialogOpen, setIsUrlDialogOpen] = useState(false);
++
+   // Refs
+   const fileInputRef = useRef<HTMLInputElement>(null);
+   const uploadDropZoneRef = useRef<HTMLDivElement>(null);
+ 
+   // Upload handlers
+   const [uploadFilesStream] = useUploadFilesStreamMutation();
++  const [uploadFromUrls] = useUploadFromUrlsMutation();
+ 
+   const uploadFilesToFolder = async (files: globalThis.File[], folderId: number | null) => {
+     if (files.length === 0) return;
+@@ -245,6 +250,14 @@ export const AssetsPage = () => {
+     await uploadFilesToFolder(files, currentFolderId);
+   };
+ 
++  const handleUrlUpload = async (urls: string[]) => {
++    try {
++      await uploadFromUrls({ urls, folderId: currentFolderId }).unwrap();
++    } catch (error) {
++      // Error is already dispatched to store from the API queryFn
++    }
++  };
++
+   return (
+     <>
+       <UploadDropZoneProvider onDrop={handleDrop}>
+@@ -279,6 +292,12 @@ export const AssetsPage = () => {
+                         defaultMessage: 'Import files',
+                       })}
+                     </MenuItem>
++                    <MenuItem onSelect={() => setIsUrlDialogOpen(true)} startIcon={<Link />}>
++                      {formatMessage({
++                        id: getTranslationKey('import-from-url'),
++                        defaultMessage: 'Import from URL',
++                      })}
++                    </MenuItem>
+                   </SimpleMenu>
+                 }
+                 subtitle={
+@@ -348,6 +367,11 @@ export const AssetsPage = () => {
+         parentFolderId={currentFolderId}
+         onClose={() => setIsCreateFolderDialogOpen(false)}
+       />
++      <ImportFromUrlDialog
++        open={isUrlDialogOpen}
++        onClose={() => setIsUrlDialogOpen(false)}
++        onUpload={handleUrlUpload}
++      />
+       <AssetDetailsDrawer />
+     </>
+   );
+diff --git a/packages/core/upload/admin/src/future/pages/Assets/components/ImportFromUrlDialog.tsx b/packages/core/upload/admin/src/future/pages/Assets/components/ImportFromUrlDialog.tsx
+new file mode 100644
+index 00000000..807a74d2
+--- /dev/null
++++ b/packages/core/upload/admin/src/future/pages/Assets/components/ImportFromUrlDialog.tsx
+@@ -0,0 +1,110 @@
++import * as React from 'react';
++
++import { Button, Field, Modal, Textarea } from '@strapi/design-system';
++import { useIntl } from 'react-intl';
++
++import { validateUrls } from '../../../utils/files';
++import { getTranslationKey } from '../../../utils/translations';
++
++interface ImportFromUrlDialogProps {
++  open: boolean;
++  onClose: () => void;
++  onUpload: (urls: string[]) => Promise<void>;
++}
++
++export const ImportFromUrlDialog = ({ open, onClose, onUpload }: ImportFromUrlDialogProps) => {
++  const { formatMessage } = useIntl();
++  const [urls, setUrls] = React.useState('');
++  const [error, setError] = React.useState<string | null>(null);
++
++  const handleClose = () => {
++    setUrls('');
++    setError(null);
++    onClose();
++  };
++
++  const handleSubmit = async (e: React.FormEvent) => {
++    e.preventDefault();
++
++    // Validate URLs
++    const { urls: validUrls, error: validationError } = validateUrls(urls);
++    if (validationError) {
++      setError(validationError);
++      return;
++    }
++
++    setError(null);
++
++    // Close dialog and let the mutation handle fetching and uploading
++    handleClose();
++
++    // Pass URLs to mutation which handles fetching and upload progress
++    await onUpload(validUrls);
++  };
++
++  return (
++    <Modal.Root open={open} onOpenChange={(isOpen) => !isOpen && handleClose()}>
++      <Modal.Content>
++        <form onSubmit={handleSubmit}>
++          <Modal.Header>
++            <Modal.Title>
++              {formatMessage({
++                id: getTranslationKey('modal.url.title'),
++                defaultMessage: 'Import from URL',
++              })}
++            </Modal.Title>
++          </Modal.Header>
++
++          <Modal.Body>
++            <Field.Root
++              error={error || undefined}
++              hint={formatMessage({
++                id: getTranslationKey('input.url.description'),
++                defaultMessage: 'Separate your URL links by a carriage return.',
++              })}
++            >
++              <Field.Label>
++                {formatMessage({
++                  id: getTranslationKey('input.url.label'),
++                  defaultMessage: 'URL(s)',
++                })}
++              </Field.Label>
++              <Textarea
++                name="urls"
++                minHeight="unset"
++                rows={Math.min(urls.split('\n').length, 7)}
++                maxHeight="10.5rem"
++                placeholder={formatMessage({
++                  id: getTranslationKey('input.url.placeholder'),
++                  defaultMessage: 'Empty',
++                })}
++                value={urls}
++                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => {
++                  setUrls(e.target.value);
++                  setError(null);
++                }}
++              />
++              <Field.Hint />
++              <Field.Error />
++            </Field.Root>
++          </Modal.Body>
++
++          <Modal.Footer>
++            <Button variant="tertiary" onClick={handleClose}>
++              {formatMessage({
++                id: 'app.components.Button.cancel',
++                defaultMessage: 'Cancel',
++              })}
++            </Button>
++            <Button type="submit">
++              {formatMessage({
++                id: getTranslationKey('modal.url.upload'),
++                defaultMessage: 'Upload',
++              })}
++            </Button>
++          </Modal.Footer>
++        </form>
++      </Modal.Content>
++    </Modal.Root>
++  );
++};
+diff --git a/packages/core/upload/admin/src/future/services/api.ts b/packages/core/upload/admin/src/future/services/api.ts
+index 7a868259..f98805f9 100644
+--- a/packages/core/upload/admin/src/future/services/api.ts
++++ b/packages/core/upload/admin/src/future/services/api.ts
+@@ -10,6 +10,7 @@ import {
+   setUploadFailed,
+   retryCancelledFiles,
+ } from '../store/uploadProgress';
++import { getFilenameFromUrl } from '../utils/files';
+ 
+ import type {
+   CreateFilesStream,
+@@ -21,6 +22,11 @@ interface UploadFilesArgs {
+   totalFiles: number;
+ }
+ 
++interface UploadFromUrlsArgs {
++  urls: string[];
++  folderId: number | null;
++}
++
+ interface RootState {
+   admin_app: {
+     token?: string | null;
+@@ -165,6 +171,37 @@ const fetchUploadStream = async ({
+   });
+ };
+ 
++/**
++ * Makes a streaming upload-from-URLs request to the server.
++ * Sends URLs as JSON body instead of FormData.
++ */
++const fetchUrlUploadStream = async ({
++  token,
++  urls,
++  folderId,
++  signal,
++}: {
++  token: string | null | undefined;
++  urls: string[];
++  folderId: number | null;
++  signal: AbortSignal;
++}): Promise<Response> => {
++  const backendURL = window.strapi.backendURL;
++  const headers: Record<string, string> = {
++    'Content-Type': 'application/json',
++  };
++  if (token) {
++    headers.Authorization = `Bearer ${token}`;
++  }
++
++  return fetch(`${backendURL}/upload/unstable/stream-from-urls`, {
++    method: 'POST',
++    headers,
++    body: JSON.stringify({ urls, folderId }),
++    signal,
++  });
++};
++
+ /**
+  * Options for processing an SSE upload stream.
+  */
+@@ -221,6 +258,18 @@ const processSSEStream = async ({
+       const mappedIndex = indexMapper(parsed.index as number);
+ 
+       switch (event) {
++        case 'file:fetching': {
++          // URL is being fetched server-side - mark as uploading (processing)
++          dispatch(
++            setFileUploading({
++              name: parsed.url as string,
++              index: mappedIndex,
++              total: parsed.total as number,
++              size: 0,
++            })
++          );
++          break;
++        }
+         case 'file:uploading': {
+           const payload = parsed as CreateFilesStreamEvents.FileUploadingEvent;
+           dispatch(
+@@ -271,6 +320,117 @@ const processSSEStream = async ({
+   return streamResult;
+ };
+ 
++/**
++ * Options for performing a streaming upload.
++ */
++interface PerformStreamUploadOptions {
++  token: string | null | undefined;
++  formData: FormData;
++  abortController: AbortController;
++  uploadId: number;
++  dispatch: Dispatch;
++  indexMapper?: (serverIndex: number) => number;
++  onUploadFailed?: (message: string) => void;
++}
++
++/**
++ * Error shape returned by upload operations.
++ */
++interface UploadError {
++  name: 'UnknownError';
++  message: string;
++  status?: number;
++}
++
++/**
++ * Result of a streaming upload operation.
++ * Matches RTK Query's expected return type for queryFn.
++ */
++type UploadResult =
++  | { data: CreateFilesStream.Response; error?: undefined }
++  | { error: UploadError; data?: undefined };
++
++/**
++ * Performs the actual streaming upload to the server.
++ * Shared by uploadFilesStream, retryCancelledFilesStream, and uploadFromUrls.
++ *
++ * @param options - Upload configuration
++ * @returns The upload result or error
++ */
++const performStreamUpload = async ({
++  token,
++  formData,
++  abortController,
++  uploadId,
++  dispatch,
++  indexMapper = (i) => i,
++  onUploadFailed = (message) => dispatch(setUploadFailed({ message })),
++}: PerformStreamUploadOptions): Promise<UploadResult> => {
++  try {
++    const response = await fetchUploadStream({
++      token,
++      formData,
++      signal: abortController.signal,
++    });
++
++    if (!response.ok || !response.body) {
++      unregisterAbortController(uploadId);
++
++      let errorMessage = 'Upload request failed';
++      try {
++        const errorData = await response.json();
++        if (errorData.error?.message) {
++          errorMessage = errorData.error.message;
++        } else if (errorData.message) {
++          errorMessage = errorData.message;
++        }
++      } catch {
++        errorMessage = `Upload failed with status ${response.status}`;
++      }
++
++      onUploadFailed(errorMessage);
++
++      return {
++        error: {
++          name: 'UnknownError',
++          message: errorMessage,
++          status: response.status,
++        },
++      };
++    }
++
++    const streamResult = await processSSEStream({
++      response,
++      dispatch,
++      indexMapper,
++    });
++
++    unregisterAbortController(uploadId);
++
++    if (streamResult && streamResult.data.length > 0) {
++      return { data: streamResult };
++    }
++
++    return { data: { data: [], errors: [] } };
++  } catch (err) {
++    unregisterAbortController(uploadId);
++
++    if (err instanceof DOMException && err.name === 'AbortError') {
++      return { error: { name: 'UnknownError', message: 'Upload cancelled' } };
++    }
++
++    const errorMessage = err instanceof Error ? err.message : 'Network error occurred';
++    onUploadFailed(errorMessage);
++
++    return {
++      error: {
++        name: 'UnknownError',
++        message: errorMessage,
++      },
++    };
++  }
++};
++
+ const uploadApi = adminApi
+   .enhanceEndpoints({
+     addTagTypes: ['Asset', 'Folder'],
+@@ -292,7 +452,7 @@ const uploadApi = adminApi
+           const fileNames = fileInfo.map((info) => info.name);
+           const fileSizes = files.map((file) => file.size);
+ 
+-          // Open the progress dialog and get the uploadId
++          // Open the progress dialog
+           dispatch(openUploadProgress({ totalFiles, fileNames, fileSizes }));
+           dispatch(updateProgress(0));
+ 
+@@ -306,84 +466,13 @@ const uploadApi = adminApi
+           const abortController = new AbortController();
+           registerAbortController(uploadId, abortController);
+ 
+-          try {
+-            const response = await fetchUploadStream({
+-              token,
+-              formData,
+-              signal: abortController.signal,
+-            });
+-
+-            if (!response.ok || !response.body) {
+-              unregisterAbortController(uploadId);
+-
+-              // Try to parse error message from response
+-              let errorMessage = 'Upload request failed';
+-              try {
+-                const errorData = await response.json();
+-                if (errorData.error?.message) {
+-                  errorMessage = errorData.error.message;
+-                } else if (errorData.message) {
+-                  errorMessage = errorData.message;
+-                }
+-              } catch {
+-                // If we can't parse the error, use a generic message with status code
+-                errorMessage = `Upload failed with status ${response.status}`;
+-              }
+-
+-              // Mark all files as failed in the UI
+-              dispatch(setUploadFailed({ message: errorMessage }));
+-
+-              return {
+-                error: {
+-                  name: 'UnknownError',
+-                  message: errorMessage,
+-                  status: response.status,
+-                },
+-              };
+-            }
+-
+-            const streamResult = await processSSEStream({
+-              response,
+-              dispatch,
+-            });
+-
+-            unregisterAbortController(uploadId);
+-
+-            if (streamResult && streamResult.data.length > 0) {
+-              return { data: streamResult };
+-            }
+-
+-            // If stream ended without completing any files, mark all as failed
+-            const errorMessage = 'No files were uploaded successfully';
+-            dispatch(setUploadFailed({ message: errorMessage }));
+-
+-            return {
+-              error: {
+-                name: 'UnknownError',
+-                message: errorMessage,
+-              },
+-            };
+-          } catch (err) {
+-            unregisterAbortController(uploadId);
+-
+-            if (err instanceof DOMException && err.name === 'AbortError') {
+-              // Don't mark as failed for user-initiated cancellations
+-              return {
+-                error: { name: 'UnknownError', message: 'Upload cancelled' },
+-              };
+-            }
+-
+-            // For network errors or other exceptions, mark all files as failed
+-            const errorMessage = err instanceof Error ? err.message : 'Network error occurred';
+-            dispatch(setUploadFailed({ message: errorMessage }));
+-
+-            return {
+-              error: {
+-                name: 'UnknownError',
+-                message: errorMessage,
+-              },
+-            };
+-          }
++          return performStreamUpload({
++            token,
++            formData,
++            abortController,
++            uploadId,
++            dispatch,
++          });
+         },
+         invalidatesTags: [{ type: 'Asset', id: 'LIST' }],
+       }),
+@@ -434,17 +523,72 @@ const uploadApi = adminApi
+           const abortController = new AbortController();
+           registerAbortController(uploadId, abortController);
+ 
++          // Custom error handler: mark individual retried files as failed
++          const onUploadFailed = (message: string) => {
++            for (const originalIndex of indexMapping) {
++              dispatch(
++                setFileError({
++                  index: originalIndex,
++                  name: stateFiles[originalIndex].name,
++                  message,
++                })
++              );
++            }
++          };
++
++          return performStreamUpload({
++            token,
++            formData,
++            abortController,
++            uploadId,
++            dispatch,
++            indexMapper: (serverIndex) => indexMapping[serverIndex],
++            onUploadFailed,
++          });
++        },
++        invalidatesTags: [{ type: 'Asset', id: 'LIST' }],
++      }),
++
++      /**
++       * Upload files from URLs.
++       * Sends URLs to the server which fetches and uploads them.
++       */
++      uploadFromUrls: builder.mutation<CreateFilesStream.Response, UploadFromUrlsArgs>({
++        queryFn: async ({ urls, folderId }, { dispatch, getState }) => {
++          const token = (getState() as RootState).admin_app?.token;
++
++          // Extract filenames from URLs for the progress dialog
++          const fileNames = urls.map((url) => getFilenameFromUrl(url));
++
++          // Open progress dialog with all URLs as pending files
++          dispatch(
++            openUploadProgress({
++              totalFiles: urls.length,
++              fileNames,
++            })
++          );
++          dispatch(updateProgress(0));
++
++          // Get the uploadId from state after dispatching
++          const uploadId = (getState() as RootState).uploadProgress.uploadId;
++
++          // Create abort controller for this upload
++          const abortController = new AbortController();
++          registerAbortController(uploadId, abortController);
++
+           try {
+-            const response = await fetchUploadStream({
++            // Send URLs to server for fetching and uploading
++            const response = await fetchUrlUploadStream({
+               token,
+-              formData,
++              urls,
++              folderId,
+               signal: abortController.signal,
+             });
+ 
+             if (!response.ok || !response.body) {
+               unregisterAbortController(uploadId);
+ 
+-              let errorMessage = 'Retry request failed';
++              let errorMessage = 'Upload request failed';
+               try {
+                 const errorData = await response.json();
+                 if (errorData.error?.message) {
+@@ -453,33 +597,24 @@ const uploadApi = adminApi
+                   errorMessage = errorData.message;
+                 }
+               } catch {
+-                errorMessage = `Retry failed with status ${response.status}`;
++                errorMessage = `Upload failed with status ${response.status}`;
+               }
+ 
+-              // Mark retried files as failed
+-              for (const originalIndex of indexMapping) {
+-                dispatch(
+-                  setFileError({
+-                    index: originalIndex,
+-                    name: stateFiles[originalIndex].name,
+-                    message: errorMessage,
+-                  })
+-                );
+-              }
++              dispatch(setUploadFailed({ message: errorMessage }));
+ 
+               return {
+                 error: {
+-                  name: 'UnknownError',
++                  name: 'UnknownError' as const,
+                   message: errorMessage,
+                   status: response.status,
+                 },
+               };
+             }
+ 
++            // Process SSE stream from server
+             const streamResult = await processSSEStream({
+               response,
+               dispatch,
+-              indexMapper: (serverIndex) => indexMapping[serverIndex],
+             });
+ 
+             unregisterAbortController(uploadId);
+@@ -488,25 +623,20 @@ const uploadApi = adminApi
+               return { data: streamResult };
+             }
+ 
+-            return {
+-              error: {
+-                name: 'UnknownError',
+-                message: 'No files were uploaded successfully',
+-              },
+-            };
++            return { data: { data: [], errors: [] } };
+           } catch (err) {
+             unregisterAbortController(uploadId);
+ 
+             if (err instanceof DOMException && err.name === 'AbortError') {
+-              return {
+-                error: { name: 'UnknownError', message: 'Retry cancelled' },
+-              };
++              return { error: { name: 'UnknownError' as const, message: 'Upload cancelled' } };
+             }
+ 
+             const errorMessage = err instanceof Error ? err.message : 'Network error occurred';
++            dispatch(setUploadFailed({ message: errorMessage }));
++
+             return {
+               error: {
+-                name: 'UnknownError',
++                name: 'UnknownError' as const,
+                 message: errorMessage,
+               },
+             };
+@@ -517,5 +647,9 @@ const uploadApi = adminApi
+     }),
+   });
+ 
+-export const { useUploadFilesStreamMutation, useRetryCancelledFilesStreamMutation } = uploadApi;
++export const {
++  useUploadFilesStreamMutation,
++  useRetryCancelledFilesStreamMutation,
++  useUploadFromUrlsMutation,
++} = uploadApi;
+ export { uploadApi };
+diff --git a/packages/core/upload/admin/src/future/store/uploadProgress.ts b/packages/core/upload/admin/src/future/store/uploadProgress.ts
+index f1e9ea1b..e9592384 100644
+--- a/packages/core/upload/admin/src/future/store/uploadProgress.ts
++++ b/packages/core/upload/admin/src/future/store/uploadProgress.ts
+@@ -64,18 +64,26 @@ const uploadProgressSlice = createSlice({
+   reducers: {
+     openUploadProgress(
+       state,
+-      action: PayloadAction<{ totalFiles: number; fileNames: string[]; fileSizes: number[] }>
++      action: PayloadAction<{
++        totalFiles: number;
++        fileNames: string[];
++        fileSizes?: number[];
++      }>
+     ) {
+       state.isVisible = true;
+       state.isMinimized = false;
+       state.progress = 0;
+-      state.totalFiles = action.payload.totalFiles;
+-      state.files = action.payload.fileNames.map((name, index) => ({
++
++      // Create pending files for upload
++      const pendingFiles: FileProgress[] = action.payload.fileNames.map((name, index) => ({
+         name,
+         index,
+         status: 'pending' as FileProgressStatus,
+-        size: action.payload.fileSizes[index] || 0,
++        size: action.payload.fileSizes?.[index] ?? 0,
+       }));
++
++      state.files = pendingFiles;
++      state.totalFiles = action.payload.totalFiles;
+       state.errors = [];
+       state.uploadId += 1;
+     },
+@@ -83,9 +91,10 @@ const uploadProgressSlice = createSlice({
+       state,
+       action: PayloadAction<{ name: string; index: number; total: number; size: number }>
+     ) {
+-      const { index } = action.payload;
++      const { index, size } = action.payload;
+       if (state.files[index]) {
+         state.files[index].status = 'uploading';
++        state.files[index].size = size;
+       }
+     },
+     setFileComplete(state, action: PayloadAction<{ index: number; file: File }>) {
+diff --git a/packages/core/upload/admin/src/future/utils/files.ts b/packages/core/upload/admin/src/future/utils/files.ts
+index 948d8bcc..27964a79 100644
+--- a/packages/core/upload/admin/src/future/utils/files.ts
++++ b/packages/core/upload/admin/src/future/utils/files.ts
+@@ -1,5 +1,20 @@
+ import byteSize from 'byte-size';
+ 
++const MAX_URLS = 20;
++
++/**
++ * Formats a byte value into a human-readable string with units.
++ *
++ * @param receivedBytes - The number of bytes to format (as number or string)
++ * @param decimals - The number of decimal places to display (default: 0)
++ * @returns A formatted string with value and unit (e.g., "1.5MB")
++ *
++ * @example
++ * ```ts
++ * formatBytes(1024) // '1KB'
++ * formatBytes(1536, 1) // '1.5KB'
++ * ```
++ */
+ export function formatBytes(receivedBytes: number | string, decimals = 0) {
+   const realBytes = typeof receivedBytes === 'string' ? Number(receivedBytes) : receivedBytes;
+   const { value, unit } = byteSize(realBytes * 1000, { precision: decimals });
+@@ -11,9 +26,101 @@ export function formatBytes(receivedBytes: number | string, decimals = 0) {
+   return `${value}${unit.toUpperCase()}`;
+ }
+ 
++/**
++ * Extracts the file extension from a string, removing the leading dot if present.
++ *
++ * @param ext - The file extension string (may include leading dot)
++ * @returns The extension without leading dot, or the original value if no dot
++ *
++ * @example
++ * ```ts
++ * getFileExtension('.jpg') // 'jpg'
++ * getFileExtension('png') // 'png'
++ * ```
++ */
+ export const getFileExtension = (ext?: string | null) =>
+   ext && ext[0] === '.' ? ext.substring(1) : ext;
+ 
++/**
++ * Prefixes a relative file URL with the backend URL if needed.
++ *
++ * @param fileURL - The file URL to potentially prefix
++ * @returns The full URL with backend prefix if it was relative, otherwise unchanged
++ *
++ * @example
++ * ```ts
++ * prefixFileUrlWithBackendUrl('/uploads/image.jpg') // 'http://localhost:1337/uploads/image.jpg'
++ * prefixFileUrlWithBackendUrl('https://cdn.example.com/image.jpg') // 'https://cdn.example.com/image.jpg'
++ * ```
++ */
+ export const prefixFileUrlWithBackendUrl = (fileURL?: string) => {
+   return !!fileURL && fileURL.startsWith('/') ? `${window.strapi.backendURL}${fileURL}` : fileURL;
+ };
++
++/**
++ * Extracts a filename from a URL's pathname.
++ *
++ * @param url - The URL to extract the filename from
++ * @returns The filename extracted from the URL path, or 'file' if none found
++ *
++ * @example
++ * ```ts
++ * getFilenameFromUrl('https://example.com/images/photo.jpg') // 'photo.jpg'
++ * getFilenameFromUrl('https://example.com/') // 'file'
++ * ```
++ */
++export function getFilenameFromUrl(url: string): string {
++  const pathname = new URL(url).pathname;
++  const filename = pathname.split('/').pop();
++  return filename || 'file';
++}
++
++/**
++ * Validates a newline-separated string of URLs.
++ *
++ * @param urlsString - A string containing URLs separated by newlines
++ * @returns An object with validated URLs array and optional error message
++ *
++ * @example
++ * ```ts
++ * const { urls, error } = validateUrls('https://example.com/a.jpg\nhttps://example.com/b.jpg');
++ * if (error) {
++ *   console.error(error);
++ * } else {
++ *   console.log(urls); // ['https://example.com/a.jpg', 'https://example.com/b.jpg']
++ * }
++ * ```
++ */
++export function validateUrls(urlsString: string): { urls: string[]; error: string | null } {
++  const urls = urlsString
++    .split(/\r?\n/)
++    .map((url) => url.trim())
++    .filter(Boolean);
++
++  if (urls.length === 0) {
++    return { urls: [], error: 'Please provide at least one URL' };
++  }
++
++  if (urls.length > MAX_URLS) {
++    return { urls: [], error: `Maximum ${MAX_URLS} URLs allowed` };
++  }
++
++  const invalidUrls: string[] = [];
++  for (const url of urls) {
++    try {
++      new URL(url);
++    } catch {
++      invalidUrls.push(url);
++    }
++  }
++
++  if (invalidUrls.length > 0) {
++    const message =
++      invalidUrls.length === 1
++        ? `Invalid URL: ${invalidUrls[0]}`
++        : `${invalidUrls.length} invalid URLs found`;
++    return { urls: [], error: message };
++  }
++
++  return { urls, error: null };
++}
+diff --git a/packages/core/upload/admin/src/translations/en.json b/packages/core/upload/admin/src/translations/en.json
+index 080efd07..8d3899d0 100644
+--- a/packages/core/upload/admin/src/translations/en.json
++++ b/packages/core/upload/admin/src/translations/en.json
+@@ -25,6 +25,7 @@
+   "upload.progress.failed.subtitle": "Please try to upload files again",
+   "upload.progress.success": "Upload successful!",
+   "upload.progress.success.subtitle": "{count, plural, one {# file uploaded successfully} other {# files uploaded successfully}}",
++  "upload.progress.success.subtitle.withErrors": "{successCount} uploaded, {errorCount} failed",
+   "upload.progress.uploading.withCount": "Uploading {total} items ({percentage}%)",
+   "upload.progress.uploading-files": "Uploading {count, plural, one {# file} other {# files}}",
+   "upload.progress.indicator.in-progress": "Upload in progress indicator",
+@@ -86,7 +87,8 @@
+   "header.content.assets-empty": "No assets",
+   "header.content.assets": "{numberFolders, plural, one {1 folder} other {# folders}} - {numberAssets, plural, one {1 asset} other {# assets}}",
+   "header.content.item-count": "{count, plural, =1 {# item} other {# items}}",
+-  "import-files": "Import files",
++  "import-files": "File upload",
++  "import-from-url": "File upload from URL",
+   "input.button.label": "Browse files",
+   "input.label": "Drag & Drop here or",
+   "input.label-bold": "Drag & drop",
+@@ -94,7 +96,8 @@
+   "input.placeholder": "Click to add an asset or drag & drop a file in this area",
+   "input.placeholder.icon": "Drop the asset in this zone",
+   "input.url.description": "Separate your URL links by a carriage return.",
+-  "input.url.label": "URL",
++  "input.url.label": "URL(s)",
++  "input.url.placeholder": "Empty",
+   "input.notification.not-supported": "You can't upload this type of file, only the following types are accepted – {fileTypes}",
+   "list.assets.title": "Assets ({count})",
+   "list.asset.at.finished": "The assets have finished loading.",
+@@ -105,6 +108,8 @@
+   "list.assets.empty": "Media Library is empty",
+   "list.assets.empty-upload": "Upload your first assets...",
+   "list.assets.empty.no-permissions": "No permissions to view",
++  "list.assets.error": "An error occurred while fetching assets.",
++  "list.assets.loading-more": "Loading more assets...",
+   "list.assets.loading-asset": "Loading the preview for the media: {path}",
+   "list.assets.not-supported-content": "No preview available",
+   "list.assets.preview-asset": "Preview for the video at path {path}",
+@@ -208,6 +213,9 @@
+   "config.popUpWarning.warning.updateAllSettings": "This will modify all your settings",
+   "view-switch.list": "List View",
+   "view-switch.grid": "Grid View",
++  "view.switch.label": "View options",
++  "view.table": "Table view",
++  "view.grid": "Grid view",
+   "ai.modal.uploading.title": "Uploading and processing with AI...",
+   "ai.modal.title": "{count, plural, one {# asset uploaded} other {# assets uploaded}}, review AI generated metadata",
+   "ai.modal.error": "Could not generate AI metadata for the uploaded files."
+diff --git a/packages/core/upload/server/src/controllers/admin-upload.ts b/packages/core/upload/server/src/controllers/admin-upload.ts
+index 32cb2b67..91f1000f 100644
+--- a/packages/core/upload/server/src/controllers/admin-upload.ts
++++ b/packages/core/upload/server/src/controllers/admin-upload.ts
+@@ -1,3 +1,6 @@
++import os from 'os';
++import path from 'path';
++import fse from 'fs-extra';
+ import _ from 'lodash';
+ import { errors, async } from '@strapi/utils';
+ 
+@@ -7,7 +10,7 @@ import { getService } from '../utils';
+ import { ACTIONS, FILE_MODEL_UID } from '../constants';
+ import { validateBulkUpdateBody, validateUploadBody } from './validation/admin/upload';
+ import { findEntityAndCheckPermissions } from './utils/find-entity-and-check-permissions';
+-import { FileInfo } from '../types';
++import { Config, FileInfo } from '../types';
+ import { prepareUploadRequest, type FileUploadError } from '../utils/mime-validation';
+ import type { UploadFileInfo } from '../../../shared/contracts/files';
+ 
+@@ -312,6 +315,148 @@ export default {
+     res.end();
+   },
+ 
++  /**
++   * @experimental
++   * Upload files from URLs with SSE streaming for per-file progress
++   *
++   * Accepts JSON body with URLs and fetches them server-side.
++   * Streams Server-Sent Events as each URL is fetched and uploaded:
++   * - file:fetching  — when starting to fetch a URL
++   * - file:uploading — when upload starts for a fetched file
++   * - file:complete  — when a file is successfully uploaded
++   * - file:error     — when a URL fetch or upload fails
++   * - stream:complete — final summary with all results
++   */
++  async unstable_uploadFromUrls(ctx: Context) {
++    const {
++      state: { userAbility, user },
++      request: { body },
++    } = ctx;
++
++    const uploadService = getService('upload');
++    const fileService = getService('file');
++    const pm = strapi.service('admin::permission').createPermissionsManager({
++      ability: userAbility,
++      action: ACTIONS.create,
++      model: FILE_MODEL_UID,
++    });
++
++    if (!pm.isAllowed) {
++      return ctx.forbidden();
++    }
++
++    // Parse and validate request body
++    const { urls, folderId } = body as { urls?: string[]; folderId?: number | null };
++
++    if (!urls || !Array.isArray(urls) || urls.length === 0) {
++      throw new errors.ApplicationError('URLs are required');
++    }
++
++    if (urls.length > 20) {
++      throw new errors.ApplicationError('Maximum 20 URLs allowed per request');
++    }
++
++    // Take manual control of the response for SSE streaming
++    ctx.respond = false;
++    const res = ctx.res;
++    res.writeHead(200, {
++      'Content-Type': 'text/event-stream',
++      'Cache-Control': 'no-cache',
++      Connection: 'keep-alive',
++    });
++
++    const writeSSE = (event: string, data: Record<string, unknown>) => {
++      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
++    };
++
++    const total = urls.length;
++    const uploadErrors: FileUploadError[] = [];
++    const successfulFiles: any[] = [];
++
++    // Create temp directory for fetched files
++    const tmpWorkingDirectory = await fse.mkdtemp(path.join(os.tmpdir(), 'strapi-url-upload-'));
++    const { sizeLimit } = strapi.config.get<Config>('plugin::upload');
++
++    try {
++      // Process each URL sequentially
++      for (let i = 0; i < urls.length; i += 1) {
++        const url = urls[i];
++
++        writeSSE('file:fetching', { url, index: i, total });
++
++        try {
++          // Fetch URL to temp file
++          const { file } = await fileService.fetchUrlToInputFile(
++            url,
++            tmpWorkingDirectory,
++            sizeLimit
++          );
++          const fileName = file.originalFilename;
++
++          writeSSE('file:uploading', {
++            name: fileName,
++            index: i,
++            total,
++            size: file.size,
++          });
++
++          // Validate using security checks
++          const fileInfo: UploadFileInfo = {
++            name: fileName,
++            caption: null,
++            alternativeText: null,
++            folder: folderId ?? null,
++          };
++
++          const { validFiles, errors: validationErrors } = await prepareUploadRequest(
++            file,
++            { fileInfo: JSON.stringify(fileInfo) },
++            strapi
++          );
++
++          if (validFiles.length === 0) {
++            const errorMessage = validationErrors[0]?.message || 'Validation failed';
++            uploadErrors.push({ name: fileName, message: errorMessage });
++            writeSSE('file:error', { name: fileName, url, index: i, message: errorMessage });
++          } else {
++            // Upload the file
++            const data = await validateUploadBody({ fileInfo }, false);
++            const [uploadedFile] = await uploadService.upload(
++              { data, files: [validFiles[0]] },
++              { user }
++            );
++
++            // Sign file url
++            const signedFile = await fileService.signFileUrls(uploadedFile);
++            successfulFiles.push(signedFile);
++
++            writeSSE('file:complete', { name: fileName, index: i, file: signedFile });
++          }
++        } catch (error) {
++          const errorMessage = error instanceof Error ? error.message : String(error);
++          uploadErrors.push({ name: url, message: errorMessage });
++          writeSSE('file:error', { url, index: i, message: errorMessage });
++        }
++      }
++
++      // Track image upload metric once if any images were uploaded
++      if (successfulFiles.some((file) => file.mime?.startsWith('image/'))) {
++        await getService('metrics').trackUsage('didUploadImage');
++      }
++
++      // Send final stream summary
++      writeSSE('stream:complete', {
++        data: await pm.sanitizeOutput(successfulFiles, { action: ACTIONS.read }),
++        errors: uploadErrors,
++      });
++    } finally {
++      // Clean up temp directory
++      await fse.remove(tmpWorkingDirectory);
++    }
++
++    res.end();
++  },
++
+   // TODO: split into multiple endpoints
+   async upload(ctx: Context) {
+     const {
+diff --git a/packages/core/upload/server/src/routes/admin.ts b/packages/core/upload/server/src/routes/admin.ts
+index af58e8a8..8396476f 100644
+--- a/packages/core/upload/server/src/routes/admin.ts
++++ b/packages/core/upload/server/src/routes/admin.ts
+@@ -49,6 +49,14 @@ export const routes = {
+         policies: ['admin::isAuthenticatedAdmin'],
+       },
+     },
++    {
++      method: 'POST',
++      path: '/unstable/stream-from-urls',
++      handler: 'admin-upload.unstable_uploadFromUrls',
++      config: {
++        policies: ['admin::isAuthenticatedAdmin'],
++      },
++    },
+     {
+       method: 'GET',
+       path: '/files',
+diff --git a/packages/core/upload/server/src/services/file.ts b/packages/core/upload/server/src/services/file.ts
+index 2981dfdc..95a5b2d2 100644
+--- a/packages/core/upload/server/src/services/file.ts
++++ b/packages/core/upload/server/src/services/file.ts
+@@ -1,11 +1,167 @@
++import path from 'path';
++import dns from 'dns/promises';
++import net from 'net';
++import fse from 'fs-extra';
+ import { cloneDeep } from 'lodash/fp';
+-import { async } from '@strapi/utils';
++import { async, errors } from '@strapi/utils';
+ 
+ import { FOLDER_MODEL_UID, FILE_MODEL_UID } from '../constants';
+ import { getService } from '../utils';
+ 
+ import { Config, type File } from '../types';
+ 
++const { ApplicationError } = errors;
++
++const FETCH_TIMEOUT_MS = 60_000; // 60 seconds
++
++// Blocks loopback, link-local (cloud metadata), and RFC-1918 private ranges to prevent SSRF
++const SSRF_BLOCK_LIST = new net.BlockList();
++SSRF_BLOCK_LIST.addSubnet('127.0.0.0', 8); // loopback
++SSRF_BLOCK_LIST.addSubnet('10.0.0.0', 8); // RFC-1918
++SSRF_BLOCK_LIST.addSubnet('172.16.0.0', 12); // RFC-1918
++SSRF_BLOCK_LIST.addSubnet('192.168.0.0', 16); // RFC-1918
++SSRF_BLOCK_LIST.addSubnet('169.254.0.0', 16); // link-local / cloud metadata (AWS, GCP, Azure)
++SSRF_BLOCK_LIST.addSubnet('::1', 128, 'ipv6'); // IPv6 loopback
++SSRF_BLOCK_LIST.addSubnet('fc00::', 7, 'ipv6'); // IPv6 unique local
++SSRF_BLOCK_LIST.addSubnet('fe80::', 10, 'ipv6'); // IPv6 link-local
++
++/**
++ * Represents a file fetched from a URL, compatible with the upload pipeline
++ */
++interface UrlFetchedFile {
++  filepath: string;
++  originalFilename: string;
++  mimetype: string;
++  size: number;
++  tmpWorkingDirectory?: string;
++}
++
++interface FetchUrlResult {
++  file: UrlFetchedFile;
++}
++
++/**
++ * Extracts filename from a URL path or Content-Disposition header
++ */
++const getFilenameFromUrl = (url: string, contentDisposition?: string | null): string => {
++  // Try Content-Disposition header first
++  if (contentDisposition) {
++    // Extracts filename from Content-Disposition header (e.g. filename="photo.jpg" or filename*=UTF-8''photo.jpg)
++    const filenameMatch = contentDisposition.match(
++      /filename\*?=['"]?(?:UTF-\d['"]*)?([^;\r\n"']*)['"]?/i
++    );
++    if (filenameMatch?.[1]) {
++      // Use path.basename to prevent path traversal attacks
++      return path.basename(decodeURIComponent(filenameMatch[1]));
++    }
++  }
++
++  // Fall back to URL path
++  try {
++    const urlObj = new URL(url);
++    const pathname = urlObj.pathname;
++    const filename = pathname.split('/').pop();
++    if (filename && filename.length > 0) {
++      // Use path.basename to prevent path traversal attacks (e.g., URL-encoded separators)
++      return path.basename(decodeURIComponent(filename));
++    }
++  } catch {
++    // Invalid URL, use default
++  }
++
++  // Generate a timestamp-based default filename
++  const now = new Date();
++  const date = now.toISOString().split('T')[0]; // 2024-02-23
++  const time = now.toTimeString().split(' ')[0].replace(/:/g, ''); // 143052
++  return `untitled_${date}_${time}`;
++};
++
++/**
++ * Fetches a URL and saves it as a temporary file
++ * Returns an InputFile-compatible object for use with the upload pipeline
++ */
++const fetchUrlToInputFile = async (
++  url: string,
++  tmpWorkingDirectory: string,
++  sizeLimit?: number
++): Promise<FetchUrlResult> => {
++  // Validate URL protocol
++  let parsedUrl: URL;
++  try {
++    parsedUrl = new URL(url);
++  } catch {
++    throw new ApplicationError(`Invalid URL: ${url}`);
++  }
++
++  if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
++    throw new ApplicationError(`Invalid URL protocol. Only http and https are allowed: ${url}`);
++  }
++
++  // Resolve hostname and block private/internal IP ranges to prevent SSRF
++  try {
++    const { address, family } = await dns.lookup(parsedUrl.hostname);
++    const type = family === 6 ? 'ipv6' : 'ipv4';
++    if (SSRF_BLOCK_LIST.check(address, type)) {
++      throw new ApplicationError(`URL resolves to a blocked address: ${url}`);
++    }
++  } catch (error) {
++    if (error instanceof ApplicationError) throw error;
++    throw new ApplicationError(`Could not resolve hostname: ${parsedUrl.hostname}`);
++  }
++
++  // Fetch the URL with timeout
++  let response: Response;
++  try {
++    response = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
++  } catch (error) {
++    if (error instanceof Error && error.name === 'TimeoutError') {
++      throw new ApplicationError(`Request timed out while fetching URL: ${url}`);
++    }
++    throw error;
++  }
++
++  if (!response.ok) {
++    throw new ApplicationError(
++      `Failed to fetch URL: ${url} (${response.status} ${response.statusText})`
++    );
++  }
++
++  // Check Content-Length header for early rejection of large files
++  if (sizeLimit) {
++    const contentLength = response.headers.get('content-length');
++    if (contentLength && parseInt(contentLength, 10) > sizeLimit) {
++      throw new ApplicationError(
++        `File too large: maximum allowed size is ${Math.round(sizeLimit / (1024 * 1024))}MB`
++      );
++    }
++  }
++
++  // Get content type and filename
++  const contentType =
++    response.headers.get('content-type')?.split(';')[0] || 'application/octet-stream';
++  const contentDisposition = response.headers.get('content-disposition');
++  const filename = getFilenameFromUrl(response.url, contentDisposition);
++
++  // Read response body
++  const arrayBuffer = await response.arrayBuffer();
++  const buffer = Buffer.from(arrayBuffer);
++
++  // Write to temp file
++  const tmpFilePath = path.join(tmpWorkingDirectory, filename);
++  await fse.writeFile(tmpFilePath, buffer);
++
++  // Create file object compatible with upload pipeline
++  const fetchedFile: UrlFetchedFile = {
++    filepath: tmpFilePath,
++    originalFilename: filename,
++    mimetype: contentType,
++    size: buffer.length,
++    tmpWorkingDirectory,
++  };
++
++  return { file: fetchedFile };
++};
++
+ const getFolderPath = async (folderId?: number | null) => {
+   if (!folderId) return '/';
+ 
+@@ -52,4 +208,5 @@ const signFileUrls = async (file: File) => {
+   return signedFile;
+ };
+ 
+-export default { getFolderPath, deleteByIds, signFileUrls };
++export type { UrlFetchedFile, FetchUrlResult };
++export default { getFolderPath, deleteByIds, signFileUrls, fetchUrlToInputFile };

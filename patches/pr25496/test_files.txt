@@ -1,0 +1,3 @@
+tests/api/core/upload/admin/upload-stream.test.api.js
+tests/e2e/tests/media-library/future/file-upload.spec.ts
+tests/e2e/tests/media-library/future/page-objects/AssetsPage.ts

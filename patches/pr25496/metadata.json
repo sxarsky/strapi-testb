@@ -1,0 +1,9 @@
+{
+  "pr_number": 25496,
+  "title": "chore(upload): add import from url",
+  "merge_commit": "c1b52ed675309686377ebcbab7fdf7c57213b2b7",
+  "merged_at": "2026-02-27T08:33:24Z",
+  "upstream_repo": "strapi/strapi",
+  "extracted_at": "2026-04-13T00:09:49Z",
+  "body": "### What does it do?\r\n\r\n- Add ImportFromUrlDialog component\r\n- Create RTK mutation specific for handling from url and from url errors\r\n- Update / add missing translations \r\n- Add e2e test for the import from url\r\n\r\n### Why is it needed?\r\n\r\nTo maintain the upload from url feature\r\n\r\n### How to test it?\r\n\r\nWith a url like https://picsum.photos/id/237/200/300.jpg, try to upload from url\r\nTry a bunch of them\r\nUpload should proceed like any other upload in the UploadProgressDialog\r\n\r\n**Errors**\r\n\r\nIf at leats 1 url is invalid the error will be reported in the dialog and it will not proceed with upload\r\nOtherwise, the errors should be reported in the UploadProgressDialog like any other upload\r\n\r"
+}

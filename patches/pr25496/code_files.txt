@@ -1,0 +1,11 @@
+packages/core/upload/admin/src/future/components/Drawer.tsx
+packages/core/upload/admin/src/future/components/UploadProgressDialog.tsx
+packages/core/upload/admin/src/future/pages/Assets/AssetsPage.tsx
+packages/core/upload/admin/src/future/pages/Assets/components/ImportFromUrlDialog.tsx
+packages/core/upload/admin/src/future/services/api.ts
+packages/core/upload/admin/src/future/store/uploadProgress.ts
+packages/core/upload/admin/src/future/utils/files.ts
+packages/core/upload/admin/src/translations/en.json
+packages/core/upload/server/src/controllers/admin-upload.ts
+packages/core/upload/server/src/routes/admin.ts
+packages/core/upload/server/src/services/file.ts

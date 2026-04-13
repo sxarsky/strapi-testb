@@ -1,0 +1,22 @@
+### What does it do?
+
+- Add ImportFromUrlDialog component
+- Create RTK mutation specific for handling from url and from url errors
+- Update / add missing translations 
+- Add e2e test for the import from url
+
+### Why is it needed?
+
+To maintain the upload from url feature
+
+### How to test it?
+
+With a url like https://picsum.photos/id/237/200/300.jpg, try to upload from url
+Try a bunch of them
+Upload should proceed like any other upload in the UploadProgressDialog
+
+**Errors**
+
+If at leats 1 url is invalid the error will be reported in the dialog and it will not proceed with upload
+Otherwise, the errors should be reported in the UploadProgressDialog like any other upload
+
