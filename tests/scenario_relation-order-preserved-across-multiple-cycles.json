@@ -1,0 +1,214 @@
+[
+  {
+    "Source": "192.168.65.1:39998",
+    "Destination": "localhost",
+    "RequestBody": "{\"name\": \"MultiCycleTag-skyramp\"}",
+    "ResponseBody": "{\"id\": 10, \"documentId\": \"r5gn9o8qr53f\", \"name\": \"MultiCycleTag-skyramp\", \"publishedAt\": null}",
+    "RequestHeaders": {
+      "Content-Type": [
+        "application/json"
+      ],
+      "Authorization": [
+        "Bearer SKYRAMP_PLACEHOLDER_TOKEN"
+      ]
+    },
+    "ResponseHeaders": {
+      "Content-Type": [
+        "application/json"
+      ]
+    },
+    "Method": "POST",
+    "Path": "/content-manager/collection-types/api::tag.tag",
+    "QueryParams": {},
+    "StatusCode": 201,
+    "Port": 1337,
+    "Timestamp": "2026-04-13T02:22:10.136Z",
+    "Scheme": "http"
+  },
+  {
+    "Source": "192.168.65.1:39998",
+    "Destination": "localhost",
+    "RequestBody": "{\"name\": \"MultiCycleProduct-skyramp\", \"tags\": {\"connect\": [{\"documentId\": \"r5gn9o8qr53f\"}]}}",
+    "ResponseBody": "{\"id\": 11, \"documentId\": \"s6ho0p9rs42g\", \"name\": \"MultiCycleProduct-skyramp\", \"publishedAt\": null}",
+    "RequestHeaders": {
+      "Content-Type": [
+        "application/json"
+      ],
+      "Authorization": [
+        "Bearer SKYRAMP_PLACEHOLDER_TOKEN"
+      ]
+    },
+    "ResponseHeaders": {
+      "Content-Type": [
+        "application/json"
+      ]
+    },
+    "Method": "POST",
+    "Path": "/content-manager/collection-types/api::product.product",
+    "QueryParams": {},
+    "StatusCode": 201,
+    "Port": 1337,
+    "Timestamp": "2026-04-13T02:22:10.136Z",
+    "Scheme": "http"
+  },
+  {
+    "Source": "192.168.65.1:39998",
+    "Destination": "localhost",
+    "RequestBody": "{}",
+    "ResponseBody": "{\"id\": 12, \"documentId\": \"s6ho0p9rs42g\", \"name\": \"MultiCycleProduct-skyramp\", \"publishedAt\": \"2026-04-13T00:00:00.000Z\"}",
+    "RequestHeaders": {
+      "Content-Type": [
+        "application/json"
+      ],
+      "Authorization": [
+        "Bearer SKYRAMP_PLACEHOLDER_TOKEN"
+      ]
+    },
+    "ResponseHeaders": {
+      "Content-Type": [
+        "application/json"
+      ]
+    },
+    "Method": "POST",
+    "Path": "/content-manager/collection-types/api::product.product/s6ho0p9rs42g/actions/publish",
+    "QueryParams": {},
+    "StatusCode": 200,
+    "Port": 1337,
+    "Timestamp": "2026-04-13T02:22:10.136Z",
+    "Scheme": "http"
+  },
+  {
+    "Source": "192.168.65.1:39998",
+    "Destination": "localhost",
+    "RequestBody": "{}",
+    "ResponseBody": "{\"id\": 10, \"documentId\": \"r5gn9o8qr53f\", \"name\": \"MultiCycleTag-skyramp\", \"publishedAt\": null}",
+    "RequestHeaders": {
+      "Content-Type": [
+        "application/json"
+      ],
+      "Authorization": [
+        "Bearer SKYRAMP_PLACEHOLDER_TOKEN"
+      ]
+    },
+    "ResponseHeaders": {
+      "Content-Type": [
+        "application/json"
+      ]
+    },
+    "Method": "POST",
+    "Path": "/content-manager/collection-types/api::tag.tag/r5gn9o8qr53f/actions/unpublish",
+    "QueryParams": {},
+    "StatusCode": 200,
+    "Port": 1337,
+    "Timestamp": "2026-04-13T02:22:10.136Z",
+    "Scheme": "http"
+  },
+  {
+    "Source": "192.168.65.1:39998",
+    "Destination": "localhost",
+    "RequestBody": "{}",
+    "ResponseBody": "{\"id\": 13, \"documentId\": \"r5gn9o8qr53f\", \"name\": \"MultiCycleTag-skyramp\", \"publishedAt\": \"2026-04-13T00:00:00.000Z\"}",
+    "RequestHeaders": {
+      "Content-Type": [
+        "application/json"
+      ],
+      "Authorization": [
+        "Bearer SKYRAMP_PLACEHOLDER_TOKEN"
+      ]
+    },
+    "ResponseHeaders": {
+      "Content-Type": [
+        "application/json"
+      ]
+    },
+    "Method": "POST",
+    "Path": "/content-manager/collection-types/api::tag.tag/r5gn9o8qr53f/actions/publish",
+    "QueryParams": {},
+    "StatusCode": 200,
+    "Port": 1337,
+    "Timestamp": "2026-04-13T02:22:10.136Z",
+    "Scheme": "http"
+  },
+  {
+    "Source": "192.168.65.1:39998",
+    "Destination": "localhost",
+    "RequestBody": "{}",
+    "ResponseBody": "{\"id\": 13, \"documentId\": \"r5gn9o8qr53f\", \"name\": \"MultiCycleTag-skyramp\", \"publishedAt\": null}",
+    "RequestHeaders": {
+      "Content-Type": [
+        "application/json"
+      ],
+      "Authorization": [
+        "Bearer SKYRAMP_PLACEHOLDER_TOKEN"
+      ]
+    },
+    "ResponseHeaders": {
+      "Content-Type": [
+        "application/json"
+      ]
+    },
+    "Method": "POST",
+    "Path": "/content-manager/collection-types/api::tag.tag/r5gn9o8qr53f/actions/unpublish",
+    "QueryParams": {},
+    "StatusCode": 200,
+    "Port": 1337,
+    "Timestamp": "2026-04-13T02:22:10.136Z",
+    "Scheme": "http"
+  },
+  {
+    "Source": "192.168.65.1:39998",
+    "Destination": "localhost",
+    "RequestBody": "{}",
+    "ResponseBody": "{\"id\": 14, \"documentId\": \"r5gn9o8qr53f\", \"name\": \"MultiCycleTag-skyramp\", \"publishedAt\": \"2026-04-13T00:00:00.000Z\"}",
+    "RequestHeaders": {
+      "Content-Type": [
+        "application/json"
+      ],
+      "Authorization": [
+        "Bearer SKYRAMP_PLACEHOLDER_TOKEN"
+      ]
+    },
+    "ResponseHeaders": {
+      "Content-Type": [
+        "application/json"
+      ]
+    },
+    "Method": "POST",
+    "Path": "/content-manager/collection-types/api::tag.tag/r5gn9o8qr53f/actions/publish",
+    "QueryParams": {},
+    "StatusCode": 200,
+    "Port": 1337,
+    "Timestamp": "2026-04-13T02:22:10.136Z",
+    "Scheme": "http"
+  },
+  {
+    "Source": "192.168.65.1:39998",
+    "Destination": "localhost",
+    "RequestBody": "",
+    "ResponseBody": "{\"id\": 12, \"documentId\": \"s6ho0p9rs42g\", \"name\": \"MultiCycleProduct-skyramp\", \"tags\": [{\"id\": 14, \"documentId\": \"r5gn9o8qr53f\", \"name\": \"MultiCycleTag-skyramp\"}]}",
+    "RequestHeaders": {
+      "Content-Type": [
+        "application/json"
+      ],
+      "Authorization": [
+        "Bearer SKYRAMP_PLACEHOLDER_TOKEN"
+      ]
+    },
+    "ResponseHeaders": {
+      "Content-Type": [
+        "application/json"
+      ]
+    },
+    "Method": "GET",
+    "Path": "/content-manager/collection-types/api::product.product/s6ho0p9rs42g",
+    "QueryParams": {
+      "populate": [
+        "tags"
+      ]
+    },
+    "StatusCode": 200,
+    "Port": 1337,
+    "Timestamp": "2026-04-13T02:22:10.136Z",
+    "Scheme": "http"
+  }
+]

@@ -1,0 +1,162 @@
+[
+  {
+    "Source": "192.168.65.1:39998",
+    "Destination": "localhost",
+    "RequestBody": "{\"name\": \"InverseTag-skyramp\"}",
+    "ResponseBody": "{\"id\": 5, \"documentId\": \"t3el7m6op75d\", \"name\": \"InverseTag-skyramp\", \"publishedAt\": null}",
+    "RequestHeaders": {
+      "Content-Type": [
+        "application/json"
+      ],
+      "Authorization": [
+        "Bearer SKYRAMP_PLACEHOLDER_TOKEN"
+      ]
+    },
+    "ResponseHeaders": {
+      "Content-Type": [
+        "application/json"
+      ]
+    },
+    "Method": "POST",
+    "Path": "/content-manager/collection-types/api::tag.tag",
+    "QueryParams": {},
+    "StatusCode": 201,
+    "Port": 1337,
+    "Timestamp": "2026-04-13T02:21:59.808Z",
+    "Scheme": "http"
+  },
+  {
+    "Source": "192.168.65.1:39998",
+    "Destination": "localhost",
+    "RequestBody": "{\"name\": \"InverseProduct-skyramp\", \"tags\": {\"connect\": [{\"documentId\": \"t3el7m6op75d\"}]}}",
+    "ResponseBody": "{\"id\": 7, \"documentId\": \"q4fm8n7pq64e\", \"name\": \"InverseProduct-skyramp\", \"publishedAt\": null}",
+    "RequestHeaders": {
+      "Content-Type": [
+        "application/json"
+      ],
+      "Authorization": [
+        "Bearer SKYRAMP_PLACEHOLDER_TOKEN"
+      ]
+    },
+    "ResponseHeaders": {
+      "Content-Type": [
+        "application/json"
+      ]
+    },
+    "Method": "POST",
+    "Path": "/content-manager/collection-types/api::product.product",
+    "QueryParams": {},
+    "StatusCode": 201,
+    "Port": 1337,
+    "Timestamp": "2026-04-13T02:21:59.808Z",
+    "Scheme": "http"
+  },
+  {
+    "Source": "192.168.65.1:39998",
+    "Destination": "localhost",
+    "RequestBody": "{}",
+    "ResponseBody": "{\"id\": 8, \"documentId\": \"q4fm8n7pq64e\", \"name\": \"InverseProduct-skyramp\", \"publishedAt\": \"2026-04-13T00:00:00.000Z\"}",
+    "RequestHeaders": {
+      "Content-Type": [
+        "application/json"
+      ],
+      "Authorization": [
+        "Bearer SKYRAMP_PLACEHOLDER_TOKEN"
+      ]
+    },
+    "ResponseHeaders": {
+      "Content-Type": [
+        "application/json"
+      ]
+    },
+    "Method": "POST",
+    "Path": "/content-manager/collection-types/api::product.product/q4fm8n7pq64e/actions/publish",
+    "QueryParams": {},
+    "StatusCode": 200,
+    "Port": 1337,
+    "Timestamp": "2026-04-13T02:21:59.808Z",
+    "Scheme": "http"
+  },
+  {
+    "Source": "192.168.65.1:39998",
+    "Destination": "localhost",
+    "RequestBody": "{}",
+    "ResponseBody": "{\"id\": 5, \"documentId\": \"t3el7m6op75d\", \"name\": \"InverseTag-skyramp\", \"publishedAt\": null}",
+    "RequestHeaders": {
+      "Content-Type": [
+        "application/json"
+      ],
+      "Authorization": [
+        "Bearer SKYRAMP_PLACEHOLDER_TOKEN"
+      ]
+    },
+    "ResponseHeaders": {
+      "Content-Type": [
+        "application/json"
+      ]
+    },
+    "Method": "POST",
+    "Path": "/content-manager/collection-types/api::tag.tag/t3el7m6op75d/actions/unpublish",
+    "QueryParams": {},
+    "StatusCode": 200,
+    "Port": 1337,
+    "Timestamp": "2026-04-13T02:21:59.808Z",
+    "Scheme": "http"
+  },
+  {
+    "Source": "192.168.65.1:39998",
+    "Destination": "localhost",
+    "RequestBody": "{}",
+    "ResponseBody": "{\"id\": 9, \"documentId\": \"t3el7m6op75d\", \"name\": \"InverseTag-skyramp\", \"publishedAt\": \"2026-04-13T00:00:00.000Z\"}",
+    "RequestHeaders": {
+      "Content-Type": [
+        "application/json"
+      ],
+      "Authorization": [
+        "Bearer SKYRAMP_PLACEHOLDER_TOKEN"
+      ]
+    },
+    "ResponseHeaders": {
+      "Content-Type": [
+        "application/json"
+      ]
+    },
+    "Method": "POST",
+    "Path": "/content-manager/collection-types/api::tag.tag/t3el7m6op75d/actions/publish",
+    "QueryParams": {},
+    "StatusCode": 200,
+    "Port": 1337,
+    "Timestamp": "2026-04-13T02:21:59.808Z",
+    "Scheme": "http"
+  },
+  {
+    "Source": "192.168.65.1:39998",
+    "Destination": "localhost",
+    "RequestBody": "",
+    "ResponseBody": "{\"id\": 8, \"documentId\": \"q4fm8n7pq64e\", \"name\": \"InverseProduct-skyramp\", \"tags\": [{\"id\": 9, \"documentId\": \"t3el7m6op75d\", \"name\": \"InverseTag-skyramp\"}]}",
+    "RequestHeaders": {
+      "Content-Type": [
+        "application/json"
+      ],
+      "Authorization": [
+        "Bearer SKYRAMP_PLACEHOLDER_TOKEN"
+      ]
+    },
+    "ResponseHeaders": {
+      "Content-Type": [
+        "application/json"
+      ]
+    },
+    "Method": "GET",
+    "Path": "/content-manager/collection-types/api::product.product/q4fm8n7pq64e",
+    "QueryParams": {
+      "populate": [
+        "tags"
+      ]
+    },
+    "StatusCode": 200,
+    "Port": 1337,
+    "Timestamp": "2026-04-13T02:21:59.808Z",
+    "Scheme": "http"
+  }
+]
