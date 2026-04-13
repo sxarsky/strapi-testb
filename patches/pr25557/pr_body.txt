@@ -1,0 +1,30 @@
+### What does it do?
+Reduces the amount of data populated for the localizations relation and meta.availableLocales in Content Manager responses.
+
+- Adds withPopulateOverrids to the populate builder. Only populates minimal localization fields for content manager.
+- Updates the bulk locale publish dialog to only validate the current document locale client-side, since other locales no longer carry full data. Server-side validation still applies during the actual publish.
+
+### Why is it needed?
+When a content type uses i18n with dynamic zones/components and has many locales, the CM endpoints deeply populate every localization and include heavy availableLocales metadata. This causes multi-MB payloads and hundreds of extra DB queries, making the admin panel very slow.
+
+On develop
+<img width="887" height="84" alt="Screenshot 2026-02-25 at 15 16 23" src="https://github.com/user-attachments/assets/fb29844a-ec49-417d-8750-18dc0ddb9edd" />
+
+
+This branch
+<img width="649" height="51" alt="Screenshot 2026-02-25 at 15 23 13" src="https://github.com/user-attachments/assets/bb4c063e-2785-49a2-82f0-0b6a56a731e9" />
+
+
+
+### How to test it?
+
+I recommend you first reproduce the issue on develop and then come to this branch to see the fix
+
+1. Enable the i18n plugin and add 10+ locales.
+2. Create a localized collection type with dynamic zones or components.
+3. Create several documents and fill in translations for each locale.
+4. Open the Content Manager list view and single entry view.
+5. Inspect the network responses — payloads should be significantly smaller (localizations should only contain locale, documentId, publishedAt, updatedAt instead of full nested content).
+6. Verify the locale switcher and bulk locale publish still work correctly.
+
+resolves #24504

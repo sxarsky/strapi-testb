@@ -1,0 +1,2 @@
+packages/core/content-manager/server/src/services/utils/__tests__/populate.test.ts
+tests/api/core/content-manager/api/document-metadata.test.api.js

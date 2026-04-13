@@ -1,0 +1,696 @@
+diff --git a/packages/core/content-manager/server/src/controllers/collection-types.ts b/packages/core/content-manager/server/src/controllers/collection-types.ts
+index 0cd15359..d58198d3 100644
+--- a/packages/core/content-manager/server/src/controllers/collection-types.ts
++++ b/packages/core/content-manager/server/src/controllers/collection-types.ts
+@@ -1,6 +1,6 @@
+ import { isNil, omit } from 'lodash/fp';
+ 
+-import { setCreatorFields, async, errors, contentTypes } from '@strapi/utils';
++import { setCreatorFields, async, contentTypes, errors } from '@strapi/utils';
+ import type { Modules, UID } from '@strapi/types';
+ 
+ import { getService } from '../utils';
+@@ -9,6 +9,7 @@ import { getProhibitedCloningFields, excludeNotCreatableFields } from './utils/c
+ import { getDocumentLocaleAndStatus } from './validation/dimensions';
+ import { formatDocumentWithMetadata } from './utils/metadata';
+ import { indexByDocumentId } from './utils/document-status';
++import { getPopulateForLocalizations } from '../services/utils/populate';
+ 
+ /**
+  * Returns documentIds for (documentId, locale) that have both draft and published,
+@@ -260,6 +261,7 @@ export default {
+       .populateFromQuery(permissionQuery)
+       .populateDeep(1)
+       .countRelations({ toOne: false, toMany: true })
++      .withPopulateOverride(getPopulateForLocalizations(model))
+       .build();
+ 
+     // "Modified" is a UI-only filter; not a real document status. Read and strip it
+@@ -307,13 +309,11 @@ export default {
+       model
+     );
+ 
+-    // TODO: Skip this part if not necessary (if D&P disabled or columns not displayed in the view)
+-    const documentsAvailableStatus = await documentMetadata.getManyAvailableStatus(
+-      model,
+-      documents
+-    );
++    const hasDraftAndPublish = contentTypes.hasDraftAndPublish(strapi.getModel(model));
+ 
+-    const statusByDocumentId = indexByDocumentId(documentsAvailableStatus);
++    const statusByDocumentId = hasDraftAndPublish
++      ? indexByDocumentId(await documentMetadata.getManyAvailableStatus(model, documents))
++      : new Map();
+ 
+     const setStatus = (document: any) => {
+       // Available status of document
+@@ -346,10 +346,12 @@ export default {
+     }
+ 
+     const permissionQuery = await permissionChecker.sanitizedQuery.read(ctx.query);
++
+     const populate = await getService('populate-builder')(model)
+       .populateFromQuery(permissionQuery)
+       .populateDeep(Infinity)
+       .countRelations()
++      .withPopulateOverride(getPopulateForLocalizations(model))
+       .build();
+ 
+     const { locale, status } = await getDocumentLocaleAndStatus(ctx.query, model);
+@@ -548,10 +550,12 @@ export default {
+     const publishedDocument = await strapi.db.transaction(async () => {
+       // Create or update document
+       const permissionQuery = await permissionChecker.sanitizedQuery.publish(ctx.query);
++
+       const populate = await getService('populate-builder')(model)
+         .populateFromQuery(permissionQuery)
+         .populateDeep(Infinity)
+         .countRelations()
++        .withPopulateOverride(getPopulateForLocalizations(model))
+         .build();
+ 
+       let document: any;
+@@ -651,10 +655,11 @@ export default {
+       allowMultipleLocales: true,
+     });
+ 
+-    const entityPromises = documentIds.map((documentId: any) =>
+-      documentManager.findLocales(documentId, model, { populate, locale, isPublished: false })
+-    );
+-    const entities = (await Promise.all(entityPromises)).flat();
++    const entities = await documentManager.findLocales(documentIds, model, {
++      populate,
++      locale,
++      isPublished: false,
++    });
+ 
+     for (const entity of entities) {
+       if (!entity) {
+@@ -689,10 +694,10 @@ export default {
+       allowMultipleLocales: true,
+     });
+ 
+-    const entityPromises = documentIds.map((documentId: any) =>
+-      documentManager.findLocales(documentId, model, { locale, isPublished: true })
+-    );
+-    const entities = (await Promise.all(entityPromises)).flat();
++    const entities = await documentManager.findLocales(documentIds, model, {
++      locale,
++      isPublished: true,
++    });
+ 
+     for (const entity of entities) {
+       if (!entity) {
+@@ -903,17 +908,11 @@ export default {
+       return ctx.forbidden();
+     }
+ 
+-    const documents = await documentManager.findMany(
+-      {
+-        filters: {
+-          documentId: ids,
+-        },
+-        locale,
+-      },
+-      model
+-    );
++    const count = await strapi.db.query(model).count({
++      where: { documentId: ids },
++    });
+ 
+-    if (!documents) {
++    if (count === 0) {
+       return ctx.notFound();
+     }
+ 
+diff --git a/packages/core/content-manager/server/src/controllers/single-types.ts b/packages/core/content-manager/server/src/controllers/single-types.ts
+index 35b661b8..de7639d5 100644
+--- a/packages/core/content-manager/server/src/controllers/single-types.ts
++++ b/packages/core/content-manager/server/src/controllers/single-types.ts
+@@ -4,6 +4,7 @@ import { setCreatorFields, async, errors } from '@strapi/utils';
+ import { getDocumentLocaleAndStatus } from './validation/dimensions';
+ import { getService } from '../utils';
+ import { formatDocumentWithMetadata } from './utils/metadata';
++import { getPopulateForLocalizations } from '../services/utils/populate';
+ 
+ type OptionsWithPopulate = Modules.Documents.Params.Pick<UID.ContentType, 'populate:object'>;
+ 
+@@ -12,6 +13,7 @@ const buildPopulateFromQuery = async (query: any, model: any) => {
+     .populateFromQuery(query)
+     .populateDeep(Infinity)
+     .countRelations()
++    .withPopulateOverride(getPopulateForLocalizations(model))
+     .build();
+ };
+ 
+diff --git a/packages/core/content-manager/server/src/services/document-manager.ts b/packages/core/content-manager/server/src/services/document-manager.ts
+index f8707ae2..950c0468 100644
+--- a/packages/core/content-manager/server/src/services/document-manager.ts
++++ b/packages/core/content-manager/server/src/services/document-manager.ts
+@@ -72,9 +72,10 @@ const documentManager = ({ strapi }: { strapi: Core.Strapi }) => {
+         maxLimit: 1000,
+       });
+ 
++      const { populate, sort, ...countParams } = params;
+       const [documents, total = 0] = await Promise.all([
+         strapi.documents(uid).findMany(params),
+-        strapi.documents(uid).count(params),
++        strapi.documents(uid).count(countParams),
+       ]);
+ 
+       return {
+@@ -144,12 +145,9 @@ const documentManager = ({ strapi }: { strapi: Core.Strapi }) => {
+       uid: UID.CollectionType,
+       opts: Omit<DocServiceParams<'delete'>, 'documentId'> = {} as any
+     ) {
+-      const populate = await buildDeepPopulate(uid);
+-
+       await strapi.documents(uid).delete({
+         ...opts,
+         documentId: id,
+-        populate,
+       });
+       return {};
+     },
+@@ -170,9 +168,9 @@ const documentManager = ({ strapi }: { strapi: Core.Strapi }) => {
+     async publish(
+       id: Modules.Documents.ID,
+       uid: UID.CollectionType,
+-      opts: Omit<DocServiceParams<'publish'>, 'documentId'> = {} as any
++      opts: Omit<DocServiceParams<'publish'>, 'documentId'> & { populate?: object } = {} as any
+     ) {
+-      const populate = await buildDeepPopulate(uid);
++      const populate = opts.populate ?? (await buildDeepPopulate(uid));
+       const params = { ...opts, populate };
+ 
+       return strapi
+@@ -184,7 +182,7 @@ const documentManager = ({ strapi }: { strapi: Core.Strapi }) => {
+     async publishMany(uid: UID.ContentType, documentIds: string[], locale?: string | string[]) {
+       return strapi.db.transaction(async () => {
+         const results = await Promise.all(
+-          documentIds.map((documentId) => this.publish(documentId, uid, { locale }))
++          documentIds.map((documentId) => this.publish(documentId, uid, { locale, populate: {} }))
+         );
+ 
+         const publishedEntitiesCount = results.flat().filter(Boolean).length;
+@@ -202,7 +200,7 @@ const documentManager = ({ strapi }: { strapi: Core.Strapi }) => {
+           documentIds.map((id) =>
+             strapi
+               .documents(uid)
+-              .unpublish({ ...opts, documentId: id })
++              .unpublish({ ...opts, documentId: id, populate: {} })
+               .then((result) => result?.entries)
+           )
+         );
+@@ -217,9 +215,9 @@ const documentManager = ({ strapi }: { strapi: Core.Strapi }) => {
+     async unpublish(
+       id: Modules.Documents.ID,
+       uid: UID.CollectionType,
+-      opts: Omit<DocServiceParams<'unpublish'>, 'documentId'> = {} as any
++      opts: Omit<DocServiceParams<'unpublish'>, 'documentId'> & { populate?: object } = {} as any
+     ) {
+-      const populate = await buildDeepPopulate(uid);
++      const populate = opts.populate ?? (await buildDeepPopulate(uid));
+       const params = { ...opts, populate };
+ 
+       return strapi
+@@ -231,9 +229,9 @@ const documentManager = ({ strapi }: { strapi: Core.Strapi }) => {
+     async discardDraft(
+       id: Modules.Documents.ID,
+       uid: UID.CollectionType,
+-      opts: Omit<DocServiceParams<'discardDraft'>, 'documentId'> = {} as any
++      opts: Omit<DocServiceParams<'discardDraft'>, 'documentId'> & { populate?: object } = {} as any
+     ) {
+-      const populate = await buildDeepPopulate(uid);
++      const populate = opts.populate ?? (await buildDeepPopulate(uid));
+       const params = { ...opts, populate };
+ 
+       return strapi
+diff --git a/packages/core/content-manager/server/src/services/document-metadata.ts b/packages/core/content-manager/server/src/services/document-metadata.ts
+index 67ac361c..bc6c21d9 100644
+--- a/packages/core/content-manager/server/src/services/document-metadata.ts
++++ b/packages/core/content-manager/server/src/services/document-metadata.ts
+@@ -4,7 +4,6 @@ import { async, contentTypes } from '@strapi/utils';
+ import type { Core, UID, Modules } from '@strapi/types';
+ 
+ import type { DocumentMetadata } from '../../../shared/contracts/collection-types';
+-import { getPopulateForValidation } from './utils/populate';
+ 
+ const { getScalarAttributes, getMediaAttributes } = contentTypes;
+ 
+@@ -17,13 +16,23 @@ export interface DocumentVersion {
+   publishedAt?: string | null | Date;
+ }
+ 
+-const AVAILABLE_STATUS_FIELDS = [
++// Scalar fields that can be used in a DB `select`
++const AVAILABLE_STATUS_SCALAR_FIELDS = [
+   'id',
+   'documentId',
+   'locale',
+   'updatedAt',
+   'createdAt',
+   'publishedAt',
++];
++// Relation populate shared by both the fast path and the full path
++const AVAILABLE_STATUS_POPULATE = {
++  createdBy: { select: ['id', 'firstname', 'lastname', 'email'] },
++  updatedBy: { select: ['id', 'firstname', 'lastname', 'email'] },
++};
++// All fields to pick from a hydrated result (scalars + populated relations + virtual)
++const AVAILABLE_STATUS_FIELDS = [
++  ...AVAILABLE_STATUS_SCALAR_FIELDS,
+   'createdBy',
+   'updatedBy',
+   'status',
+@@ -35,9 +44,12 @@ const AVAILABLE_LOCALES_FIELDS = [
+   'updatedAt',
+   'createdAt',
+   'publishedAt',
+-  'documentId',
+ ];
+ 
++/** Returns a DB filter that matches the opposite publish status. */
++const oppositePublishStatus = (publishedAt: unknown) =>
++  publishedAt !== null ? { $null: true } : { $notNull: true };
++
+ const CONTENT_MANAGER_STATUS = {
+   PUBLISHED: 'published',
+   DRAFT: 'draft',
+@@ -174,7 +186,7 @@ export default ({ strapi }: { strapi: Core.Strapi }) => ({
+ 
+     return strapi.query(uid).findMany({
+       where,
+-      select: ['id', 'documentId', 'locale', 'updatedAt', 'createdAt', 'publishedAt'],
++      select: AVAILABLE_STATUS_SCALAR_FIELDS,
+     });
+   },
+ 
+@@ -214,9 +226,42 @@ export default ({ strapi }: { strapi: Core.Strapi }) => ({
+     version: DocumentVersion,
+     { availableLocales = true, availableStatus = true }: GetMetadataOptions = {}
+   ) {
++    const model = strapi.getModel(uid);
++    const hasDnP = contentTypes.hasDraftAndPublish(model);
++    const isLocalized = (model.pluginOptions?.i18n as any)?.localized === true;
++
++    if (!availableLocales && !availableStatus) {
++      // Nothing to compute.
++      return { availableLocales: [], availableStatus: [], versions: [] as DocumentVersion[] };
++    }
++    if (!isLocalized && !hasDnP) {
++      // If there are no locales and no draft/publish, there's only ever 1 version of any document.
++      return { availableLocales: [], availableStatus: [], versions: [] as DocumentVersion[] };
++    }
++
++    const onlyStatusIsRelevant = hasDnP && (!isLocalized || !availableLocales);
++    if (onlyStatusIsRelevant) {
++      const otherVersion = availableStatus
++        ? await strapi.db.query(uid).findOne({
++            where: {
++              documentId: version.documentId,
++              ...(version.locale ? { locale: version.locale } : {}),
++              publishedAt: oppositePublishStatus(version.publishedAt),
++            },
++            select: AVAILABLE_STATUS_SCALAR_FIELDS,
++            populate: AVAILABLE_STATUS_POPULATE,
++          })
++        : null;
++      return {
++        availableLocales: [],
++        availableStatus: otherVersion ? [pick(AVAILABLE_STATUS_FIELDS, otherVersion)] : [],
++        versions: [] as DocumentVersion[],
++      };
++    }
++
++    // Full path for localized content types
+     // TODO: Ignore publishedAt if availableStatus=false, and ignore locale if
+     // i18n is disabled
+-    const { populate = {}, fields = [] } = getPopulateForValidation(uid);
+ 
+     // Include non-translatable scalar and media fields in availableLocales for i18n prefilling
+     let nonLocalizedFields: string[] = [];
+@@ -226,7 +271,6 @@ export default ({ strapi }: { strapi: Core.Strapi }) => ({
+       if (i18nPlugin) {
+         const i18nService = i18nPlugin.service('content-types');
+         if (i18nService?.getNonLocalizedAttributes) {
+-          const model = strapi.getModel(uid);
+           if (model?.attributes) {
+             const allNonLocalized = i18nService.getNonLocalizedAttributes(model);
+             // Get scalar and media attributes separately
+@@ -262,17 +306,10 @@ export default ({ strapi }: { strapi: Core.Strapi }) => ({
+ 
+     const params = {
+       populate: {
+-        ...populate,
+         ...mediaPopulate,
+-        // NOTE: creator fields are selected in this way to avoid exposing sensitive data
+-        createdBy: {
+-          select: ['id', 'firstname', 'lastname', 'email'],
+-        },
+-        updatedBy: {
+-          select: ['id', 'firstname', 'lastname', 'email'],
+-        },
++        ...AVAILABLE_STATUS_POPULATE,
+       },
+-      fields: uniq([...AVAILABLE_LOCALES_FIELDS, ...fields, ...nonLocalizedFields]),
++      fields: uniq([...AVAILABLE_LOCALES_FIELDS, ...nonLocalizedFields]),
+       filters: {
+         documentId: version.documentId,
+       },
+@@ -293,6 +330,7 @@ export default ({ strapi }: { strapi: Core.Strapi }) => ({
+     return {
+       availableLocales: availableLocalesResult,
+       availableStatus: availableStatusResult ? [availableStatusResult] : [],
++      versions,
+     };
+   },
+ 
+@@ -323,19 +361,22 @@ export default ({ strapi }: { strapi: Core.Strapi }) => ({
+       opts.availableStatus = false;
+     }
+ 
+-    const meta = await this.getMetadata(uid, document, opts);
++    const { versions, ...meta } = await this.getMetadata(uid, document, opts);
+ 
+     // Populate localization statuses
+-    if (document.localizations) {
+-      const otherStatus = await this.getManyAvailableStatus(uid, document.localizations);
+-
++    if (document.localizations?.length) {
+       document.localizations = document.localizations.map((d) => {
+-        const status = otherStatus.find(
+-          (s) => s.documentId === d.documentId && s.locale === d.locale
++        // Find the counterpart version (same documentId + locale, opposite publishedAt) from
++        // the already-fetched versions array, avoiding an extra DB query.
++        const counterpart = versions.find(
++          (v) =>
++            v.documentId === d.documentId &&
++            v.locale === d.locale &&
++            (d.publishedAt === null) !== (v.publishedAt === null)
+         );
+         return {
+           ...d,
+-          status: this.getStatus(d, status ? [status] : []),
++          status: this.getStatus(d, counterpart ? [counterpart] : []),
+         };
+       });
+     }
+diff --git a/packages/core/content-manager/server/src/services/populate-builder.ts b/packages/core/content-manager/server/src/services/populate-builder.ts
+index 24f2ad31..08903e61 100644
+--- a/packages/core/content-manager/server/src/services/populate-builder.ts
++++ b/packages/core/content-manager/server/src/services/populate-builder.ts
+@@ -1,4 +1,4 @@
+-import { isNil } from 'lodash/fp';
++import { isNil, merge } from 'lodash/fp';
+ import type { UID } from '@strapi/types';
+ import { type Populate, getDeepPopulate, getQueryPopulate } from './utils/populate';
+ 
+@@ -57,6 +57,19 @@ const populateBuilder = (uid: UID.Schema) => {
+       return builder;
+     },
+ 
++    /**
++     * Override the populate for specific attributes, taking precedence over
++     * query-derived or deep populate defaults.
++     *
++     * @param overrides - Populate overrides to merge (e.g. { localizations: { fields: ['locale'] } })
++     */
++    withPopulateOverride(overrides: Record<string, any>) {
++      const prev = getInitialPopulate;
++      // merge(base, overrides): overrides win for overlapping keys, so e.g. localizations
++      getInitialPopulate = async () => merge((await prev()) || {}, overrides);
++      return builder;
++    },
++
+     /**
+      * Construct the populate object based on the builder options.
+      * @returns Populate object
+diff --git a/packages/core/content-manager/server/src/services/utils/populate.ts b/packages/core/content-manager/server/src/services/utils/populate.ts
+index 1a036917..1ffd1451 100644
+--- a/packages/core/content-manager/server/src/services/utils/populate.ts
++++ b/packages/core/content-manager/server/src/services/utils/populate.ts
+@@ -46,7 +46,8 @@ function getPopulateForRelation(
+ ) {
+   const isManyRelation = isAnyToMany(attribute);
+ 
+-  if (initialPopulate) {
++  // Use initialPopulate when explicitly provided (including `false` to suppress population)
++  if (initialPopulate !== undefined) {
+     return initialPopulate;
+   }
+ 
+@@ -198,76 +199,89 @@ const getDeepPopulate = (
+  * @param options - Options to apply while populating
+  * @param level - Current level of nested call
+  */
++const validationPopulateCache = new Map<string, Record<string, any>>();
++
+ const getPopulateForValidation = (uid: UID.Schema): Record<string, any> => {
++  const cached = validationPopulateCache.get(uid);
++  if (cached) {
++    return cached;
++  }
++
+   const model = strapi.getModel(uid);
+   if (!model) {
+     return {};
+   }
+ 
+-  return Object.entries(model.attributes).reduce((populateAcc: any, [attributeName, attribute]) => {
+-    if (isScalarAttribute(attribute)) {
+-      // If the scalar attribute requires validation, add it to the fields array
+-      if (getDoesAttributeRequireValidation(attribute)) {
+-        populateAcc.fields = populateAcc.fields || [];
+-        populateAcc.fields.push(attributeName);
++  const result = Object.entries(model.attributes).reduce(
++    (populateAcc: any, [attributeName, attribute]) => {
++      if (isScalarAttribute(attribute)) {
++        // If the scalar attribute requires validation, add it to the fields array
++        if (getDoesAttributeRequireValidation(attribute)) {
++          populateAcc.fields = populateAcc.fields || [];
++          populateAcc.fields.push(attributeName);
++        }
++        return populateAcc;
+       }
+-      return populateAcc;
+-    }
+ 
+-    if (isMedia(attribute)) {
+-      if (getDoesAttributeRequireValidation(attribute)) {
+-        populateAcc.populate = populateAcc.populate || {};
+-        populateAcc.populate[attributeName] = {
+-          populate: {
+-            folder: true,
+-          },
+-        };
+-        return populateAcc;
++      if (isMedia(attribute)) {
++        if (getDoesAttributeRequireValidation(attribute)) {
++          populateAcc.populate = populateAcc.populate || {};
++          populateAcc.populate[attributeName] = {
++            populate: {
++              folder: true,
++            },
++          };
++          return populateAcc;
++        }
+       }
+-    }
+ 
+-    if (isComponent(attribute)) {
+-      // @ts-expect-error - should be a component
+-      const component = attribute.component;
++      if (isComponent(attribute)) {
++        // @ts-expect-error - should be a component
++        const component = attribute.component;
++
++        // Get the validation result for this component
++        const componentResult = getPopulateForValidation(component);
+ 
+-      // Get the validation result for this component
+-      const componentResult = getPopulateForValidation(component);
++        if (Object.keys(componentResult).length > 0) {
++          populateAcc.populate = populateAcc.populate || {};
++          populateAcc.populate[attributeName] = componentResult;
++        }
+ 
+-      if (Object.keys(componentResult).length > 0) {
+-        populateAcc.populate = populateAcc.populate || {};
+-        populateAcc.populate[attributeName] = componentResult;
++        return populateAcc;
+       }
+ 
+-      return populateAcc;
+-    }
++      if (isDynamicZone(attribute)) {
++        const components = (attribute as Schema.Attribute.DynamicZone).components;
++        // Handle dynamic zone components
++        const componentsResult = (components || []).reduce(
++          (acc, componentUID) => {
++            // Get validation populate for this component
++            const componentResult = getPopulateForValidation(componentUID);
+ 
+-    if (isDynamicZone(attribute)) {
+-      const components = (attribute as Schema.Attribute.DynamicZone).components;
+-      // Handle dynamic zone components
+-      const componentsResult = (components || []).reduce(
+-        (acc, componentUID) => {
+-          // Get validation populate for this component
+-          const componentResult = getPopulateForValidation(componentUID);
+-
+-          // Only include component if it has fields requiring validation
+-          if (Object.keys(componentResult).length > 0) {
+-            acc[componentUID] = componentResult;
+-          }
++            // Only include component if it has fields requiring validation
++            if (Object.keys(componentResult).length > 0) {
++              acc[componentUID] = componentResult;
++            }
+ 
+-          return acc;
+-        },
+-        {} as Record<string, any>
+-      );
++            return acc;
++          },
++          {} as Record<string, any>
++        );
+ 
+-      // Only add to populate if we have components requiring validation
+-      if (Object.keys(componentsResult).length > 0) {
+-        populateAcc.populate = populateAcc.populate || {};
+-        populateAcc.populate[attributeName] = { on: componentsResult };
++        // Only add to populate if we have components requiring validation
++        if (Object.keys(componentsResult).length > 0) {
++          populateAcc.populate = populateAcc.populate || {};
++          populateAcc.populate[attributeName] = { on: componentsResult };
++        }
+       }
+-    }
+ 
+-    return populateAcc;
+-  }, {});
++      return populateAcc;
++    },
++    {}
++  );
++
++  validationPopulateCache.set(uid, result);
++  return result;
+ };
+ 
+ /**
+@@ -279,7 +293,14 @@ const getPopulateForValidation = (uid: UID.Schema): Record<string, any> => {
+  * @returns result.populate
+  * @returns result.hasRelations
+  */
++const draftCountPopulateCache = new Map<string, { populate: any; hasRelations: boolean }>();
++
+ const getDeepPopulateDraftCount = (uid: UID.Schema) => {
++  const cached = draftCountPopulateCache.get(uid);
++  if (cached) {
++    return cached;
++  }
++
+   const model = strapi.getModel(uid);
+   if (!model) {
+     return { populate: {}, hasRelations: false };
+@@ -354,7 +375,9 @@ const getDeepPopulateDraftCount = (uid: UID.Schema) => {
+     return populateAcc;
+   }, {});
+ 
+-  return { populate, hasRelations };
++  const result = { populate, hasRelations };
++  draftCountPopulateCache.set(uid, result);
++  return result;
+ };
+ 
+ /**
+@@ -392,8 +415,46 @@ const getQueryPopulate = async (uid: UID.Schema, query: object): Promise<Populat
+   return populateQuery;
+ };
+ 
+-const buildDeepPopulate = (uid: UID.CollectionType) => {
+-  return getService('populate-builder')(uid).populateDeep(Infinity).countRelations().build();
++const deepPopulateCache = new Map<string, object>();
++
++const buildDeepPopulate = async (uid: UID.CollectionType) => {
++  const cached = deepPopulateCache.get(uid);
++  if (cached) {
++    return cached;
++  }
++
++  const result = await getService('populate-builder')(uid)
++    .populateDeep(Infinity)
++    .countRelations()
++    .build();
++
++  deepPopulateCache.set(uid, result);
++
++  return result;
++};
++
++/**
++ * Restrict localizations populate to only metadata fields for localized content types.
++ * Returns an empty object for non-localized content types.
++ *
++ * By default, localizations are deeply populated which includes all relations and
++ * components for every locale — this is expensive and unnecessary for CM responses.
++ * The CM only needs these fields from localizations:
++ * - locale: to identify which locales exist
++ * - documentId: to link to the localized document
++ * - publishedAt: to determine published/draft status
++ * - updatedAt: to support the modified state indicator in the UI
++ */
++const getPopulateForLocalizations = (model: UID.Schema) => {
++  const modelSchema = strapi.getModel(model);
++  if (
++    (modelSchema as unknown as { pluginOptions: { i18n: { localized?: boolean } } }).pluginOptions
++      ?.i18n?.localized
++  ) {
++    return { localizations: { fields: ['locale', 'documentId', 'publishedAt', 'updatedAt'] } };
++  }
++
++  return {};
+ };
+ 
+ export {
+@@ -402,4 +463,5 @@ export {
+   getPopulateForValidation,
+   getQueryPopulate,
+   buildDeepPopulate,
++  getPopulateForLocalizations,
+ };
+diff --git a/packages/plugins/i18n/admin/src/components/CMHeaderActions.tsx b/packages/plugins/i18n/admin/src/components/CMHeaderActions.tsx
+index f1f7d052..0ddd4588 100644
+--- a/packages/plugins/i18n/admin/src/components/CMHeaderActions.tsx
++++ b/packages/plugins/i18n/admin/src/components/CMHeaderActions.tsx
+@@ -889,20 +889,16 @@ const BulkLocaleAction: DocumentActionComponent = ({
+       });
+     }
+ 
+-    // Build the validation errors for each locale.
+-    const allDocuments = [document, ...(document.localizations ?? [])];
+-    const errors = allDocuments.reduce<FormErrors>((errs, document) => {
+-      if (!document) {
+-        return errs;
+-      }
+-
+-      // Validate each locale entry via the useDocument validate function and store any errors in a dictionary
++    // Validate the current document locale only. Other locales have minimal
++    // data populated for performance reasons and will be validated server-side
++    // during the actual bulk publish operation.
++    const errors: FormErrors = {};
++    if (document.locale) {
+       const validation = validate(document as Modules.Documents.AnyDocument);
+       if (validation !== null) {
+-        errs[document.locale] = validation;
++        errors[document.locale] = validation;
+       }
+-      return errs;
+-    }, {});
++    }
+ 
+     return [locales, errors];
+   }, [document, meta?.availableLocales, validate]);

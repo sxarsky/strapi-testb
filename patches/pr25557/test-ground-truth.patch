@@ -1,0 +1,137 @@
+diff --git a/packages/core/content-manager/server/src/services/utils/__tests__/populate.test.ts b/packages/core/content-manager/server/src/services/utils/__tests__/populate.test.ts
+index baffc40a..f06f0886 100644
+--- a/packages/core/content-manager/server/src/services/utils/__tests__/populate.test.ts
++++ b/packages/core/content-manager/server/src/services/utils/__tests__/populate.test.ts
+@@ -50,6 +50,39 @@ describe('Populate', () => {
+         },
+       },
+     },
++    withLocalizations: {
++      uid: 'api::article.article',
++      modelName: 'Fake model with localizations',
++      pluginOptions: { i18n: { localized: true } },
++      attributes: {
++        title: {
++          type: 'string',
++        },
++        localizations: {
++          type: 'relation',
++          relation: 'oneToMany',
++          target: 'api::article.article',
++          visible: false,
++        },
++      },
++    },
++    withLocalizationsNotLocalized: {
++      uid: 'api::product.product',
++      modelName: 'Fake non-localized model with localizations attribute',
++      pluginOptions: {},
++      attributes: {
++        name: {
++          type: 'string',
++        },
++        localizations: {
++          type: 'relation',
++          relation: 'oneToMany',
++          target: 'api::product.product',
++          visible: false,
++          private: true,
++        },
++      },
++    },
+   } as any;
+ 
+   describe('getDeepPopulate', () => {
+@@ -153,5 +186,61 @@ describe('Populate', () => {
+         mediaAttrName: { populate: { folder: true } },
+       });
+     });
++
++    describe('initialPopulate override', () => {
++      test('defaults to validation populate for localizations', () => {
++        const uid = 'withLocalizations';
++
++        const result = getDeepPopulate(uid as any) as Record<string, any>;
++
++        // Default behavior: localizations gets validation populate (populated via getPopulateForValidation)
++        expect(result).toHaveProperty('localizations');
++        expect(result.localizations).toHaveProperty('populate');
++      });
++
++      test('initialPopulate overrides localizations with minimal fields', () => {
++        const uid = 'withLocalizations';
++
++        const result = getDeepPopulate(uid as any, {
++          initialPopulate: {
++            localizations: { fields: ['locale', 'documentId', 'publishedAt', 'updatedAt'] },
++          } as any,
++        }) as Record<string, any>;
++
++        expect(result).toEqual({
++          localizations: {
++            fields: ['locale', 'documentId', 'publishedAt', 'updatedAt'],
++          },
++        });
++      });
++
++      test('initialPopulate with false suppresses localizations populate', () => {
++        const uid = 'withLocalizations';
++
++        const result = getDeepPopulate(uid as any, {
++          initialPopulate: {
++            localizations: false,
++          } as any,
++        }) as Record<string, any>;
++
++        expect(result).toEqual({
++          localizations: false,
++        });
++      });
++
++      test('initialPopulate override works for any relation attribute', () => {
++        const uid = 'relationOTM';
++
++        const result = getDeepPopulate(uid as any, {
++          initialPopulate: {
++            relationAttrName: { fields: ['id', 'name'] },
++          } as any,
++        }) as Record<string, any>;
++
++        expect(result).toEqual({
++          relationAttrName: { fields: ['id', 'name'] },
++        });
++      });
++    });
+   });
+ });
+diff --git a/tests/api/core/content-manager/api/document-metadata.test.api.js b/tests/api/core/content-manager/api/document-metadata.test.api.js
+index b4bdb4f9..9613309d 100644
+--- a/tests/api/core/content-manager/api/document-metadata.test.api.js
++++ b/tests/api/core/content-manager/api/document-metadata.test.api.js
+@@ -261,9 +261,12 @@ describe('CM API - Document metadata', () => {
+     }
+   );
+ 
+-  test('Return available locales, including any fields that require validation', async () => {
+-    // Create products with different locales with content for every kind of
+-    // field that requires validation
++  test('Return available locales with non-localized scalar fields for prefilling', async () => {
++    // Create products with different locales. The metadata should include
++    // non-localized scalar fields in availableLocales to support prefilling
++    // when creating a new locale. Validation fields for other locales are
++    // no longer included — server-side validation handles other locales
++    // during bulk publish operations.
+     const defaultLocaleProduct = await rq({
+       method: 'POST',
+       url: `/content-manager/collection-types/${PRODUCT_UID}`,
+@@ -306,10 +309,6 @@ describe('CM API - Document metadata', () => {
+       name: 'prod-fr-draft',
+       category: 'Cat-1-fr',
+       price: 1,
+-      features: {
+-        id: expect.any(Number),
+-        name: 'Feature 1 fr',
+-      },
+       status: 'draft',
+       publishedAt: null,
+       createdAt: expect.any(String),

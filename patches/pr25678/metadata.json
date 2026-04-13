@@ -1,0 +1,9 @@
+{
+  "pr_number": 25678,
+  "title": "Chore/cm combined performance fixes",
+  "merge_commit": "a6fd594526e2f77009ede7900438e49ccafaeeb6",
+  "merged_at": "2026-03-17T16:28:37Z",
+  "upstream_repo": "strapi/strapi",
+  "extracted_at": "2026-04-13T00:45:48Z",
+  "body": "https://github.com/strapi/strapi/pull/25600\r\nhttps://github.com/strapi/strapi/pull/25557"
+}

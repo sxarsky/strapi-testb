@@ -1,0 +1,215 @@
+diff --git a/packages/core/content-manager/server/src/controllers/collection-types.ts b/packages/core/content-manager/server/src/controllers/collection-types.ts
+index be43d846..62623b99 100644
+--- a/packages/core/content-manager/server/src/controllers/collection-types.ts
++++ b/packages/core/content-manager/server/src/controllers/collection-types.ts
+@@ -9,6 +9,7 @@ import { getProhibitedCloningFields, excludeNotCreatableFields } from './utils/c
+ import { getDocumentLocaleAndStatus } from './validation/dimensions';
+ import { formatDocumentWithMetadata } from './utils/metadata';
+ import { indexByDocumentId } from './utils/document-status';
++import { getPopulateForLocalizations } from '../services/utils/populate';
+ 
+ type Options = Modules.Documents.Params.Pick<UID.ContentType, 'populate:object'>;
+ 
+@@ -140,6 +141,7 @@ export default {
+       .populateFromQuery(permissionQuery)
+       .populateDeep(1)
+       .countRelations({ toOne: false, toMany: true })
++      .withPopulateOverride(getPopulateForLocalizations(model))
+       .build();
+ 
+     const { locale, status } = await getDocumentLocaleAndStatus(query, model);
+@@ -188,10 +190,12 @@ export default {
+     }
+ 
+     const permissionQuery = await permissionChecker.sanitizedQuery.read(ctx.query);
++
+     const populate = await getService('populate-builder')(model)
+       .populateFromQuery(permissionQuery)
+       .populateDeep(Infinity)
+       .countRelations()
++      .withPopulateOverride(getPopulateForLocalizations(model))
+       .build();
+ 
+     const { locale, status } = await getDocumentLocaleAndStatus(ctx.query, model);
+@@ -390,10 +394,12 @@ export default {
+     const publishedDocument = await strapi.db.transaction(async () => {
+       // Create or update document
+       const permissionQuery = await permissionChecker.sanitizedQuery.publish(ctx.query);
++
+       const populate = await getService('populate-builder')(model)
+         .populateFromQuery(permissionQuery)
+         .populateDeep(Infinity)
+         .countRelations()
++        .withPopulateOverride(getPopulateForLocalizations(model))
+         .build();
+ 
+       let document: any;
+diff --git a/packages/core/content-manager/server/src/controllers/single-types.ts b/packages/core/content-manager/server/src/controllers/single-types.ts
+index b9fe8443..fd52c2ad 100644
+--- a/packages/core/content-manager/server/src/controllers/single-types.ts
++++ b/packages/core/content-manager/server/src/controllers/single-types.ts
+@@ -4,6 +4,7 @@ import { setCreatorFields, async, errors } from '@strapi/utils';
+ import { getDocumentLocaleAndStatus } from './validation/dimensions';
+ import { getService } from '../utils';
+ import { formatDocumentWithMetadata } from './utils/metadata';
++import { getPopulateForLocalizations } from '../services/utils/populate';
+ 
+ type OptionsWithPopulate = Modules.Documents.Params.Pick<UID.ContentType, 'populate:object'>;
+ 
+@@ -12,6 +13,7 @@ const buildPopulateFromQuery = async (query: any, model: any) => {
+     .populateFromQuery(query)
+     .populateDeep(Infinity)
+     .countRelations()
++    .withPopulateOverride(getPopulateForLocalizations(model))
+     .build();
+ };
+ 
+diff --git a/packages/core/content-manager/server/src/services/document-metadata.ts b/packages/core/content-manager/server/src/services/document-metadata.ts
+index 67ac361c..a313537d 100644
+--- a/packages/core/content-manager/server/src/services/document-metadata.ts
++++ b/packages/core/content-manager/server/src/services/document-metadata.ts
+@@ -4,7 +4,6 @@ import { async, contentTypes } from '@strapi/utils';
+ import type { Core, UID, Modules } from '@strapi/types';
+ 
+ import type { DocumentMetadata } from '../../../shared/contracts/collection-types';
+-import { getPopulateForValidation } from './utils/populate';
+ 
+ const { getScalarAttributes, getMediaAttributes } = contentTypes;
+ 
+@@ -216,7 +215,6 @@ export default ({ strapi }: { strapi: Core.Strapi }) => ({
+   ) {
+     // TODO: Ignore publishedAt if availableStatus=false, and ignore locale if
+     // i18n is disabled
+-    const { populate = {}, fields = [] } = getPopulateForValidation(uid);
+ 
+     // Include non-translatable scalar and media fields in availableLocales for i18n prefilling
+     let nonLocalizedFields: string[] = [];
+@@ -262,7 +260,6 @@ export default ({ strapi }: { strapi: Core.Strapi }) => ({
+ 
+     const params = {
+       populate: {
+-        ...populate,
+         ...mediaPopulate,
+         // NOTE: creator fields are selected in this way to avoid exposing sensitive data
+         createdBy: {
+@@ -272,7 +269,7 @@ export default ({ strapi }: { strapi: Core.Strapi }) => ({
+           select: ['id', 'firstname', 'lastname', 'email'],
+         },
+       },
+-      fields: uniq([...AVAILABLE_LOCALES_FIELDS, ...fields, ...nonLocalizedFields]),
++      fields: uniq([...AVAILABLE_LOCALES_FIELDS, ...nonLocalizedFields]),
+       filters: {
+         documentId: version.documentId,
+       },
+diff --git a/packages/core/content-manager/server/src/services/populate-builder.ts b/packages/core/content-manager/server/src/services/populate-builder.ts
+index 24f2ad31..08903e61 100644
+--- a/packages/core/content-manager/server/src/services/populate-builder.ts
++++ b/packages/core/content-manager/server/src/services/populate-builder.ts
+@@ -1,4 +1,4 @@
+-import { isNil } from 'lodash/fp';
++import { isNil, merge } from 'lodash/fp';
+ import type { UID } from '@strapi/types';
+ import { type Populate, getDeepPopulate, getQueryPopulate } from './utils/populate';
+ 
+@@ -57,6 +57,19 @@ const populateBuilder = (uid: UID.Schema) => {
+       return builder;
+     },
+ 
++    /**
++     * Override the populate for specific attributes, taking precedence over
++     * query-derived or deep populate defaults.
++     *
++     * @param overrides - Populate overrides to merge (e.g. { localizations: { fields: ['locale'] } })
++     */
++    withPopulateOverride(overrides: Record<string, any>) {
++      const prev = getInitialPopulate;
++      // merge(base, overrides): overrides win for overlapping keys, so e.g. localizations
++      getInitialPopulate = async () => merge((await prev()) || {}, overrides);
++      return builder;
++    },
++
+     /**
+      * Construct the populate object based on the builder options.
+      * @returns Populate object
+diff --git a/packages/core/content-manager/server/src/services/utils/populate.ts b/packages/core/content-manager/server/src/services/utils/populate.ts
+index 63e39bf5..6690d744 100644
+--- a/packages/core/content-manager/server/src/services/utils/populate.ts
++++ b/packages/core/content-manager/server/src/services/utils/populate.ts
+@@ -42,7 +42,8 @@ function getPopulateForRelation(
+ ) {
+   const isManyRelation = isAnyToMany(attribute);
+ 
+-  if (initialPopulate) {
++  // Use initialPopulate when explicitly provided (including `false` to suppress population)
++  if (initialPopulate !== undefined) {
+     return initialPopulate;
+   }
+ 
+@@ -378,10 +379,35 @@ const buildDeepPopulate = (uid: UID.CollectionType) => {
+   return getService('populate-builder')(uid).populateDeep(Infinity).countRelations().build();
+ };
+ 
++/**
++ * Restrict localizations populate to only metadata fields for localized content types.
++ * Returns an empty object for non-localized content types.
++ *
++ * By default, localizations are deeply populated which includes all relations and
++ * components for every locale — this is expensive and unnecessary for CM responses.
++ * The CM only needs these fields from localizations:
++ * - locale: to identify which locales exist
++ * - documentId: to link to the localized document
++ * - publishedAt: to determine published/draft status
++ * - updatedAt: to support the modified state indicator in the UI
++ */
++const getPopulateForLocalizations = (model: UID.Schema) => {
++  const modelSchema = strapi.getModel(model);
++  if (
++    (modelSchema as unknown as { pluginOptions: { i18n: { localized?: boolean } } }).pluginOptions
++      ?.i18n?.localized
++  ) {
++    return { localizations: { fields: ['locale', 'documentId', 'publishedAt', 'updatedAt'] } };
++  }
++
++  return {};
++};
++
+ export {
+   getDeepPopulate,
+   getDeepPopulateDraftCount,
+   getPopulateForValidation,
+   getQueryPopulate,
+   buildDeepPopulate,
++  getPopulateForLocalizations,
+ };
+diff --git a/packages/plugins/i18n/admin/src/components/CMHeaderActions.tsx b/packages/plugins/i18n/admin/src/components/CMHeaderActions.tsx
+index f1f7d052..0ddd4588 100644
+--- a/packages/plugins/i18n/admin/src/components/CMHeaderActions.tsx
++++ b/packages/plugins/i18n/admin/src/components/CMHeaderActions.tsx
+@@ -889,20 +889,16 @@ const BulkLocaleAction: DocumentActionComponent = ({
+       });
+     }
+ 
+-    // Build the validation errors for each locale.
+-    const allDocuments = [document, ...(document.localizations ?? [])];
+-    const errors = allDocuments.reduce<FormErrors>((errs, document) => {
+-      if (!document) {
+-        return errs;
+-      }
+-
+-      // Validate each locale entry via the useDocument validate function and store any errors in a dictionary
++    // Validate the current document locale only. Other locales have minimal
++    // data populated for performance reasons and will be validated server-side
++    // during the actual bulk publish operation.
++    const errors: FormErrors = {};
++    if (document.locale) {
+       const validation = validate(document as Modules.Documents.AnyDocument);
+       if (validation !== null) {
+-        errs[document.locale] = validation;
++        errors[document.locale] = validation;
+       }
+-      return errs;
+-    }, {});
++    }
+ 
+     return [locales, errors];
+   }, [document, meta?.availableLocales, validate]);

@@ -1,0 +1,6 @@
+packages/core/content-manager/server/src/controllers/collection-types.ts
+packages/core/content-manager/server/src/controllers/single-types.ts
+packages/core/content-manager/server/src/services/document-metadata.ts
+packages/core/content-manager/server/src/services/populate-builder.ts
+packages/core/content-manager/server/src/services/utils/populate.ts
+packages/plugins/i18n/admin/src/components/CMHeaderActions.tsx

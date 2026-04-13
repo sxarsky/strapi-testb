@@ -1,0 +1,9 @@
+{
+  "pr_number": 25764,
+  "title": "fix(core): relation handling preserves order during unpublish/republish cycles",
+  "merge_commit": "0a1886db0f5cee8d3f68f16ae665cbca86271b6a",
+  "merged_at": "2026-03-31T13:08:26Z",
+  "upstream_repo": "strapi/strapi",
+  "extracted_at": "2026-04-13T00:45:43Z",
+  "body": "## What does it do?\r\n\r\nWhen a content entry is unpublished and then republished, the `load()` function in `bidirectional-relations.ts` now also retrieves the relation order from the draft link table\r\n\r\nIt maps the draft-side join-table rows to their corresponding future published rows, so that `sync()` can restore the correct relation order on the newly created published link rows.\r\n\r\n## Why is this needed?\r\n\r\nWhen an entry involved in a bidirectional many-to-many relation is unpublished and later republished, its published join-table rows are deleted on unpublish and then recreated on publish.\r\n\r\n## How to test\r\n\r\n1. Create a content type with a many-to-many bidirectional relation (e.g. Article ↔ Author), ensuring both types have Draft & Publish enabled.\r\n2. Create several related entries (e.g., Article with Authors A, B, C in that order) and publish all of them.\r\n3. Verify that the published Article's author order is [A, B, C].\r\n4. Unpublish Author B, then republish Author B.\r\n5. Check that the published Article still lists authors in the order [A, B, C].\r\n\r\nAn API integration test that covers this scenario can be found at:\r\n`tests/api/core/strapi/document-service/relations/bidirectional-relations.test.api.ts`\r\n\r\n## Related issues/PRs\r\n\r\n- CMS-166"
+}

@@ -1,0 +1,2 @@
+packages/core/utils/src/__tests__/query-populate.test.ts
+tests/api/core/content-manager/api/number-of-draft-relations.test.api.js

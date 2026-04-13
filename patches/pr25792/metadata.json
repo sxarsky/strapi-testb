@@ -1,0 +1,9 @@
+{
+  "pr_number": 25792,
+  "title": "fix: preserve bidirectional order ",
+  "merge_commit": "ee93dcfbd44bb16cb2465dadf0bf4ffbc417f10b",
+  "merged_at": "2026-03-30T08:31:05Z",
+  "upstream_repo": "strapi/strapi",
+  "extracted_at": "2026-04-13T00:45:45Z",
+  "body": "## What does it do?\r\n\r\nThis change ensures that bidirectional many-to-many (M2M) relation ordering is preserved on **both sides** of the join table during publish/unpublish operations.\r\n\r\n## Why is it needed?\r\n\r\nWhen a bidirectional ordered M2M relation is published in Strapi, the system deletes and recreates join rows for the published entry, which breaks the original order on the **inverse side** (e.g., all related entries become \"last\" in order).\r\n\r\nA second issue arises with \"interleaved\" publishing: if some related entries (e.g., articles) are published before the owner (author), the author's article order diverges between draft and published states because only the inverse side ordering was captured and restored.\r\n\r\n## How to test\r\n\r\nComprehensive automated API tests exist. Run:\r\n\r\n```\r\nyarn test:api -- --testPathPattern=\"bidirectional-relations\"\r\n```\r\n\r\n**Test 1 — Inverse Side (unpublish → republish):**\r\n1. Create an Article with Authors A, B, C in a specific order.\r\n2. Publish all, then unpublish Author B.\r\n3. Republish Author B.\r\n4. Verify Article → Authors order matches the original and is _not_ reset to \"last\".\r\n\r\n\r\n\r\n## Related issue(s)/PR(s)\r\n\r\nCMS-166"
+}

@@ -1,0 +1,29 @@
+## What does it do?
+
+This change ensures that bidirectional many-to-many (M2M) relation ordering is preserved on **both sides** of the join table during publish/unpublish operations.
+
+## Why is it needed?
+
+When a bidirectional ordered M2M relation is published in Strapi, the system deletes and recreates join rows for the published entry, which breaks the original order on the **inverse side** (e.g., all related entries become "last" in order).
+
+A second issue arises with "interleaved" publishing: if some related entries (e.g., articles) are published before the owner (author), the author's article order diverges between draft and published states because only the inverse side ordering was captured and restored.
+
+## How to test
+
+Comprehensive automated API tests exist. Run:
+
+```
+yarn test:api -- --testPathPattern="bidirectional-relations"
+```
+
+**Test 1 — Inverse Side (unpublish → republish):**
+1. Create an Article with Authors A, B, C in a specific order.
+2. Publish all, then unpublish Author B.
+3. Republish Author B.
+4. Verify Article → Authors order matches the original and is _not_ reset to "last".
+
+
+
+## Related issue(s)/PR(s)
+
+CMS-166

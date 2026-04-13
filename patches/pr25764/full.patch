@@ -1,0 +1,547 @@
+diff --git a/packages/core/core/src/services/document-service/utils/bidirectional-relations.ts b/packages/core/core/src/services/document-service/utils/bidirectional-relations.ts
+index 2803d5c6..cf8427a9 100644
+--- a/packages/core/core/src/services/document-service/utils/bidirectional-relations.ts
++++ b/packages/core/core/src/services/document-service/utils/bidirectional-relations.ts
+@@ -1,4 +1,3 @@
+-/* eslint-disable no-continue */
+ import { keyBy, omit } from 'lodash/fp';
+ import type { UID, Schema } from '@strapi/types';
+ import type { JoinTable } from '@strapi/database';
+@@ -11,8 +10,149 @@ interface LoadContext {
+ interface RelationEntry {
+   joinTable: JoinTable;
+   relations: Record<string, unknown>[];
++  /** FK column for the entity being published */
++  entityColumn: string;
++  /** FK column for the related entity */
++  relatedColumn: string;
+ }
+ 
++/** Draft id → published id for rows that already have a published counterpart (same document_id + locale). */
++const draftToPublishedMap = async (trx: any, tableName: string, rowIds: unknown[]) => {
++  const uniqueIds = [...new Set(rowIds)];
++  if (uniqueIds.length === 0) {
++    return new Map<string, string>();
++  }
++
++  const draftEntries = await strapi.db
++    .getConnection()
++    .select('id', 'document_id', 'locale')
++    .from(tableName)
++    .whereIn('id', uniqueIds as any)
++    .transacting(trx);
++
++  if (draftEntries.length === 0) {
++    return new Map<string, string>();
++  }
++
++  const pubEntries = await strapi.db
++    .getConnection()
++    .select('id', 'document_id', 'locale')
++    .from(tableName)
++    .whereNotNull('published_at')
++    .whereIn(
++      'document_id',
++      draftEntries.map((e: any) => e.document_id)
++    )
++    .transacting(trx);
++
++  const pubByDocLocale = new Map(
++    pubEntries.map((e: any) => [`${e.document_id}_${e.locale}`, e.id])
++  );
++
++  const map = new Map<string, string>();
++  for (const d of draftEntries) {
++    const pubId = pubByDocLocale.get(`${d.document_id}_${d.locale}`);
++    if (pubId) {
++      map.set(String(d.id), String(pubId));
++    }
++  }
++  return map;
++};
++
++const remapRelatedIds = (rows: any[], relatedCol: string, idMap: Map<string, string>) =>
++  rows.map((row) => {
++    const next = idMap.get(String(row[relatedCol]));
++    return next ? { ...row, [relatedCol]: next } : row;
++  });
++
++/**
++ * Reads join rows tied to the entry being published (`publishedCol` IN draft/old ids) and returns
++ * batches for `sync()`. When the FK in `relatedCol` points at a D&P type, maps known draft ids to
++ * published ids; otherwise keeps draft ids so sync can still run after both sides exist.
++ */
++const captureJoinBatches = async (
++  trx: any,
++  opts: {
++    joinTable: any;
++    /** Column holding ids of the document being published (the `uid` passed to load). */
++    publishedCol: string;
++    /** The other FK; may be remapped via draftToPublishedMap. */
++    relatedCol: string;
++    /** Content type behind `relatedCol` (used for D&P + table name). */
++    relatedUid: UID.ContentType;
++    relatedHasDraftAndPublish: boolean;
++    /** Model that owns this attribute; draft capture is skipped for components. */
++    schemaUid: UID.ContentType;
++    oldVersions: LoadContext['oldVersions'];
++    newVersions: LoadContext['newVersions'];
++  }
++): Promise<RelationEntry[]> => {
++  const {
++    joinTable,
++    publishedCol,
++    relatedCol,
++    relatedUid,
++    relatedHasDraftAndPublish,
++    schemaUid,
++    oldVersions,
++    newVersions,
++  } = opts;
++
++  const batches: RelationEntry[] = [];
++  const { name: table } = joinTable;
++
++  const oldIds = oldVersions.map((e) => e.id);
++  if (oldIds.length > 0) {
++    const existing = await strapi.db
++      .getConnection()
++      .select('*')
++      .from(table)
++      .whereIn(publishedCol, oldIds)
++      .transacting(trx);
++    if (existing.length > 0) {
++      batches.push({
++        joinTable,
++        relations: existing,
++        entityColumn: publishedCol,
++        relatedColumn: relatedCol,
++      });
++    }
++  }
++
++  if (!strapi.contentTypes[schemaUid]) {
++    return batches;
++  }
++
++  const oldLocales = new Set(oldVersions.map((e) => e.locale));
++  const draftsOnly = newVersions.filter((v) => !oldLocales.has(v.locale));
++  if (draftsOnly.length === 0) {
++    return batches;
++  }
++
++  const draftIds = draftsOnly.map((e) => e.id);
++  const draftRows = await strapi.db
++    .getConnection()
++    .select('*')
++    .from(table)
++    .whereIn(publishedCol, draftIds)
++    .transacting(trx);
++
++  if (draftRows.length === 0) {
++    return batches;
++  }
++
++  let relations = draftRows;
++  if (relatedHasDraftAndPublish) {
++    const meta = strapi.db.metadata.get(relatedUid);
++    const relatedIds = draftRows.map((r: any) => r[relatedCol]);
++    const map = await draftToPublishedMap(trx, meta.tableName, relatedIds);
++    relations = remapRelatedIds(draftRows, relatedCol, map);
++  }
++
++  batches.push({ joinTable, relations, entityColumn: publishedCol, relatedColumn: relatedCol });
++  return batches;
++};
++
+ /**
+  * Loads all bidirectional relations that need to be synchronized when content entries change state
+  * (e.g., during publish/unpublish operations).
+@@ -58,52 +198,66 @@ interface RelationEntry {
+  * @param context - Object containing arrays of old and new entry versions
+  * @returns Array of objects containing join table metadata and relations to be updated
+  */
+-const load = async (uid: UID.ContentType, { oldVersions }: LoadContext) => {
++const load = async (uid: UID.ContentType, { oldVersions, newVersions }: LoadContext) => {
+   const relationsToUpdate: RelationEntry[] = [];
+ 
+   await strapi.db.transaction(async ({ trx }) => {
+-    const contentTypes = Object.values(strapi.contentTypes) as Schema.ContentType[];
+-    const components = Object.values(strapi.components) as Schema.Component[];
++    const models = [
++      ...(Object.values(strapi.contentTypes) as Schema.ContentType[]),
++      ...Object.values(strapi.components),
++    ];
+ 
+-    for (const model of [...contentTypes, ...components]) {
++    for (const model of models) {
+       const dbModel = strapi.db.metadata.get(model.uid);
+ 
+       for (const attribute of Object.values(dbModel.attributes) as Record<string, any>[]) {
+-        // Skip if not a bidirectional relation targeting our content type
+-        if (
+-          attribute.type !== 'relation' ||
+-          attribute.target !== uid ||
+-          !(attribute.inversedBy || attribute.mappedBy)
+-        ) {
++        const joinTable = attribute.joinTable;
++
++        if (attribute.type !== 'relation' || !joinTable) {
+           continue;
+         }
+ 
+-        // If it's a self referencing relation, there is no need to sync any relation
+-        // The order will already be handled as both sides are inside the same content type
+-        if (model.uid === uid) {
++        if (!(attribute.inversedBy || attribute.mappedBy)) {
+           continue;
+         }
+ 
+-        const joinTable = attribute.joinTable;
+-        if (!joinTable) {
++        // Owning side: e.g. Author.articles when publishing an Author.
++        const isOwningSide =
++          !!attribute.inversedBy &&
++          model.uid === uid &&
++          attribute.relation === 'manyToMany' &&
++          model.uid !== attribute.target;
++
++        // Inverse side: e.g. Article.authors when publishing an Article.
++        const isInverseSide = attribute.target === uid && model.uid !== uid;
++
++        if (!isOwningSide && !isInverseSide) {
+           continue;
+         }
+ 
+-        const { name: targetColumnName } = joinTable.inverseJoinColumn;
++        // Direction determines which join column belongs to the entity being published
++        const publishedCol = isOwningSide
++          ? joinTable.joinColumn.name
++          : joinTable.inverseJoinColumn.name;
++        const relatedCol = isOwningSide
++          ? joinTable.inverseJoinColumn.name
++          : joinTable.joinColumn.name;
+ 
+-        // Load all relations that need their order preserved
+-        const oldEntryIds = oldVersions.map((entry) => entry.id);
++        const relatedUid = (isOwningSide ? attribute.target : model.uid) as UID.ContentType;
+ 
+-        const existingRelations = await strapi.db
+-          .getConnection()
+-          .select('*')
+-          .from(joinTable.name)
+-          .whereIn(targetColumnName, oldEntryIds)
+-          .transacting(trx);
+-
+-        if (existingRelations.length > 0) {
+-          relationsToUpdate.push({ joinTable, relations: existingRelations });
+-        }
++        const batches = await captureJoinBatches(trx, {
++          joinTable,
++          publishedCol,
++          relatedCol,
++          relatedUid,
++          relatedHasDraftAndPublish: isOwningSide
++            ? !!strapi.contentTypes[relatedUid]?.options?.draftAndPublish
++            : !!model.options?.draftAndPublish,
++          schemaUid: model.uid as UID.ContentType,
++          oldVersions,
++          newVersions,
++        });
++        relationsToUpdate.push(...batches);
+       }
+     }
+   });
+@@ -142,14 +296,14 @@ const sync = async (
+   newEntries: { id: string; locale: string }[],
+   existingRelations: RelationEntry[]
+ ) => {
+-  // Group new entries by locale for easier lookup
+   const newEntriesByLocale = keyBy('locale', newEntries);
+ 
+-  // Create a mapping of old entry IDs to new entry IDs based on locale
+   const entryIdMapping = oldEntries.reduce(
+     (acc, oldEntry) => {
+       const newEntry = newEntriesByLocale[oldEntry.locale];
+-      if (!newEntry) return acc;
++      if (!newEntry) {
++        return acc;
++      }
+       acc[oldEntry.id] = newEntry.id;
+       return acc;
+     },
+@@ -160,9 +314,12 @@ const sync = async (
+   const isRepublishedEntry = (id: string | number) => republishedEntryIds.has(String(id));
+ 
+   await strapi.db.transaction(async ({ trx }) => {
+-    for (const { joinTable, relations } of existingRelations) {
+-      const sourceColumn = joinTable.inverseJoinColumn.name;
+-      const targetColumn = joinTable.joinColumn.name;
++    for (const {
++      joinTable,
++      relations,
++      entityColumn: sourceColumn,
++      relatedColumn: targetColumn,
++    } of existingRelations) {
+       const orderColumn = joinTable.orderColumnName;
+ 
+       // Failsafe in case those don't exist
+@@ -225,7 +382,8 @@ const sync = async (
+         }));
+ 
+       if (toInsert.length) {
+-        await trx.batchInsert(joinTable.name, toInsert, 1000);
++        const batchSize = strapi.db.dialect.getBatchInsertSize();
++        await trx.batchInsert(joinTable.name, toInsert, batchSize);
+       }
+     }
+   });
+diff --git a/tests/api/core/strapi/document-service/relations/bidirectional-relations.test.api.ts b/tests/api/core/strapi/document-service/relations/bidirectional-relations.test.api.ts
+index d840bd35..efd73559 100644
+--- a/tests/api/core/strapi/document-service/relations/bidirectional-relations.test.api.ts
++++ b/tests/api/core/strapi/document-service/relations/bidirectional-relations.test.api.ts
+@@ -22,9 +22,45 @@ let strapi: Core.Strapi;
+ const builder = createTestBuilder();
+ let rq;
+ 
++const ARTICLE_UID = 'api::article.article' as UID.ContentType;
++const AUTHOR_UID = 'api::author.author' as UID.ContentType;
+ const PRODUCT_UID = 'api::product.product' as UID.ContentType;
+ const TAG_UID = 'api::tag.tag' as UID.ContentType;
+ 
++const articleModel = {
++  attributes: {
++    title: {
++      type: 'string',
++    },
++  },
++  draftAndPublish: true,
++  displayName: 'Article',
++  singularName: 'article',
++  pluralName: 'articles',
++  description: '',
++  collectionName: '',
++};
++
++const authorModel = {
++  attributes: {
++    name: {
++      type: 'string',
++    },
++    articles: {
++      type: 'relation',
++      relation: 'manyToMany',
++      target: ARTICLE_UID,
++      targetAttribute: 'authors',
++    },
++  },
++  draftAndPublish: true,
++  displayName: 'Author',
++  singularName: 'author',
++  pluralName: 'authors',
++  description: '',
++  collectionName: '',
++};
++
+ // Tag model — the inverse side is auto-created by content-type-builder
+ // when Product declares inversedBy: 'products'
+ const tagModel = {
+@@ -68,7 +104,10 @@ describe('Document Service bidirectional relations', () => {
+   beforeAll(async () => {
+     // Tag must be created before Product so Product can reference it via inversedBy.
+     // The content-type builder will auto-create the inverse 'products' attribute on Tag.
+-    await builder.addContentTypes([tagModel]).addContentTypes([productModel]).build();
++    await builder
++      .addContentTypes([articleModel, authorModel, tagModel])
++      .addContentTypes([productModel])
++      .build();
+ 
+     strapi = await createStrapiInstance();
+     rq = await createAuthRequest({ strapi });
+@@ -79,6 +118,186 @@ describe('Document Service bidirectional relations', () => {
+     await builder.cleanup();
+   });
+ 
++  testInTransaction(
++    'Relation order is preserved after unpublish and republish of a related entry',
++    async () => {
++      // Create authors out of alphabetical order so correct ordering is not an accident of id sort
++      const authorC = await strapi.documents(AUTHOR_UID).create({
++        data: { name: 'Author C' },
++      });
++      const authorA = await strapi.documents(AUTHOR_UID).create({
++        data: { name: 'Author A' },
++      });
++      const authorB = await strapi.documents(AUTHOR_UID).create({
++        data: { name: 'Author B' },
++      });
++
++      // Step 2: Create Article with relations to all three authors in order (not creation order)
++      const article = await strapi.documents(ARTICLE_UID).create({
++        data: {
++          title: 'Test Article',
++          authors: [
++            { documentId: authorA.documentId },
++            { documentId: authorB.documentId },
++            { documentId: authorC.documentId },
++          ],
++        },
++      });
++
++      // Step 3: Publish everything (authors in non-alphabetical publish order, then article)
++      await strapi.documents(AUTHOR_UID).publish({ documentId: authorC.documentId });
++      await strapi.documents(AUTHOR_UID).publish({ documentId: authorA.documentId });
++      await strapi.documents(AUTHOR_UID).publish({ documentId: authorB.documentId });
++      await strapi.documents(ARTICLE_UID).publish({ documentId: article.documentId });
++
++      // Step 4: Verify Article published shows A, B, C in order
++      let publishedArticle = await strapi.documents(ARTICLE_UID).findFirst({
++        filters: { title: 'Test Article' },
++        populate: { authors: true },
++        status: 'published',
++      });
++
++      expect(publishedArticle?.authors).toHaveLength(3);
++      expect(publishedArticle?.authors?.map((a: any) => a.name)).toEqual([
++        'Author A',
++        'Author B',
++        'Author C',
++      ]);
++
++      // Step 5: Unpublish Author B
++      await strapi.documents(AUTHOR_UID).unpublish({ documentId: authorB.documentId });
++
++      // Step 6: Republish Author B
++      await strapi.documents(AUTHOR_UID).publish({ documentId: authorB.documentId });
++
++      // Step 7: Verify Article published relations still show A, B, C in correct order
++      publishedArticle = await strapi.documents(ARTICLE_UID).findFirst({
++        filters: { title: 'Test Article' },
++        populate: { authors: true },
++        status: 'published',
++      });
++
++      expect(publishedArticle?.authors).toHaveLength(3);
++      expect(publishedArticle?.authors?.map((a: any) => a.name)).toEqual([
++        'Author A',
++        'Author B',
++        'Author C',
++      ]);
++    }
++  );
++
++  /**
++   * Publishing articles and authors in an interleaved order must preserve join-table order for
++   * `author.articles` when draft data is already correct (related authors may still be draft
++   * when some articles publish first).
++   */
++  testInTransaction(
++    'interleaved article/author publishes: author-side article order should match draft',
++    async () => {
++      const articleTitlesOnAuthor = (authorEntry: any) =>
++        (authorEntry?.articles as any[])?.map((a: any) => a.title) ?? [];
++
++      const periphZ = await strapi.documents(ARTICLE_UID).create({
++        data: { title: 'ix-periph-Z' },
++      });
++      const periphM = await strapi.documents(ARTICLE_UID).create({
++        data: { title: 'ix-periph-M' },
++      });
++      const periphA = await strapi.documents(ARTICLE_UID).create({
++        data: { title: 'ix-periph-A' },
++      });
++
++      const authZ = await strapi.documents(AUTHOR_UID).create({
++        data: { name: 'ix-auth-Z' },
++      });
++      const authM = await strapi.documents(AUTHOR_UID).create({
++        data: { name: 'ix-auth-M' },
++      });
++      const authA = await strapi.documents(AUTHOR_UID).create({
++        data: { name: 'ix-auth-A' },
++      });
++
++      const hub = await strapi.documents(ARTICLE_UID).create({
++        data: { title: 'ix-hub-main' },
++      });
++
++      await strapi.documents(ARTICLE_UID).update({
++        documentId: hub.documentId,
++        data: {
++          authors: {
++            set: [
++              { documentId: authM.documentId },
++              { documentId: authZ.documentId },
++              { documentId: authA.documentId },
++            ],
++          },
++        } as any,
++      });
++
++      await strapi.documents(AUTHOR_UID).update({
++        documentId: authZ.documentId,
++        data: {
++          articles: {
++            set: [
++              { documentId: periphA.documentId },
++              { documentId: hub.documentId },
++              { documentId: periphM.documentId },
++            ],
++          },
++        } as any,
++      });
++      await strapi.documents(AUTHOR_UID).update({
++        documentId: authM.documentId,
++        data: {
++          articles: {
++            set: [
++              { documentId: hub.documentId },
++              { documentId: periphZ.documentId },
++              { documentId: periphA.documentId },
++            ],
++          },
++        } as any,
++      });
++      await strapi.documents(AUTHOR_UID).update({
++        documentId: authA.documentId,
++        data: {
++          articles: {
++            set: [
++              { documentId: periphZ.documentId },
++              { documentId: periphM.documentId },
++              { documentId: hub.documentId },
++            ],
++          },
++        } as any,
++      });
++
++      const draftAuthZ = await strapi.documents(AUTHOR_UID).findFirst({
++        filters: { name: 'ix-auth-Z' },
++        populate: { articles: true },
++        status: 'draft',
++      });
++      const expectedAuthZ = ['ix-periph-A', 'ix-hub-main', 'ix-periph-M'];
++      expect(articleTitlesOnAuthor(draftAuthZ)).toEqual(expectedAuthZ);
++
++      // Intentionally interleave: some articles publish before all authors are published.
++      await strapi.documents(ARTICLE_UID).publish({ documentId: periphM.documentId });
++      await strapi.documents(AUTHOR_UID).publish({ documentId: authA.documentId });
++      await strapi.documents(ARTICLE_UID).publish({ documentId: periphA.documentId });
++      await strapi.documents(AUTHOR_UID).publish({ documentId: authZ.documentId });
++      await strapi.documents(ARTICLE_UID).publish({ documentId: periphZ.documentId });
++      await strapi.documents(AUTHOR_UID).publish({ documentId: authM.documentId });
++      await strapi.documents(ARTICLE_UID).publish({ documentId: hub.documentId });
++
++      const publishedAuthZ = await strapi.documents(AUTHOR_UID).findFirst({
++        filters: { name: 'ix-auth-Z' },
++        populate: { articles: true },
++        status: 'published',
++      });
++
++      expect(articleTitlesOnAuthor(publishedAuthZ)).toEqual(expectedAuthZ);
++    }
++  );
++
+   testInTransaction('Sync bidirectional relations on republish of related entry', async () => {
+     // Create and publish Tag
+     const tag = await strapi.documents(TAG_UID).create({

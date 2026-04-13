@@ -1,0 +1,59 @@
+<!--
+Hello 👋 Thank you for submitting a pull request.
+
+To help us merge your PR, make sure to follow the instructions below:
+
+- Create or update the tests
+- Create or update the documentation at https://github.com/strapi/documentation
+- Refer to the issue you are closing in the PR description: Fix #issue
+- Specify if the PR is ready to be merged or work in progress (by opening a draft PR)
+
+Please ensure you read the Contributing Guide: 
+-->
+
+### What does it do?
+
+  Makes `convertNestedPopulate` in `packages/core/utils/src/convert-query-params.ts` schema-aware. Before treating a key as a query keyword (filters, sort, fields, populate, etc.), it now checks if the target schema has an attribute with that name. If it does, the key is skipped as a keyword, preventing the collision.
+
+This matches the existing pattern in the traverse system (packages/core/utils/src/traverse/query-populate.ts, lines 21-25) which already uses schema-aware keyword detection.
+
+  Change: Replace the blind destructure of query keywords with an `isKeyword` guard:
+  
+```
+const isKeyword = (key: string) => !schema?.attributes?.[key];
+  const filters = isKeyword('filters') ? subPopulateParams.filters : undefined;
+  // ... same for sort, fields, populate, count, ordering, page, pageSize, start, limit
+```
+When schema is undefined (no target resolved), `isKeyword` returns true for all keys, preserving existing behaviour.
+
+### !! IMPORTANT !! Edge case trade-off: 
+
+**When a target schema has an attribute named filters (or any other keyword), users cannot use that keyword to filter/sort/select on that specific populate level. This is an inherent ambiguity — the same key can't be both an attribute and a keyword. Since users with keyword-named attributes currently get 400 errors on those populate paths, this is strictly an improvement.**
+
+Changelog:
+  - Fixed: Content types with attributes named filters, sort, fields, or populate no longer cause 400 validation errors on populate queries and countDraftRelations (#21338)
+
+### Why is it needed?
+
+When a content type has an attribute named filters (or sort, fields, populate), Strapi's query parameter parser treats the attribute name as a query keyword instead of a schema attribute. This causes 400 validation errors like:."Invalid key publishedAt at searchResultsPage.filters"
+
+This affects the admin panel (countDraftRelations crashes when opening entries) and REST API populate queries. The issue has been reported since Strapi 5.0.0 and confirmed by multiple users.
+
+### How to test it?
+
+  1. Create a content type VDP with a string field named filters
+  2. Create another content type Page with a relation searchResultsPage pointing to VDP
+  3. Create a VDP entry and a Page entry related to it
+  4. Open the Page entry in the admin panel
+  5. Before fix: countDraftRelations returns 400 with "Invalid key publishedAt at searchResultsPage.filters"
+  6. After fix: No error, entry loads normally
+
+  Unit tests:
+` npx jest packages/core/utils/src/__tests__/convert-query-params.test.ts --no-coverage`
+ 
+test cases covering filters, sort, page collision, non-colliding keyword behavior, and dynamic zone fragments.
+
+### Related issue(s)/PR(s)
+
+Fixes CMS-148
+#21338 
