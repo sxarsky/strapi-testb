@@ -1,0 +1,22 @@
+[
+  {
+    "Source": "192.168.65.1:39998",
+    "Destination": "localhost",
+    "RequestBody": "{\"urls\":[\"https://picsum.photos/id/237/200/300.jpg\"],\"folderId\":null}",
+    "ResponseBody": "{\"data\":[{\"id\":1,\"name\":\"300.jpg\",\"url\":\"/uploads/300.jpg\",\"mime\":\"image/jpeg\",\"size\":8.04,\"width\":200,\"height\":300,\"hash\":\"300_abc123\",\"ext\":\".jpg\",\"createdAt\":\"2024-01-01T00:00:00.000Z\"}],\"errors\":[]}",
+    "RequestHeaders": {
+      "Content-Type": ["application/json"],
+      "Authorization": ["Bearer SKYRAMP_PLACEHOLDER_TOKEN"]
+    },
+    "ResponseHeaders": {
+      "Content-Type": ["application/json"]
+    },
+    "Method": "POST",
+    "Path": "/upload/unstable/stream-from-urls",
+    "QueryParams": {},
+    "StatusCode": 200,
+    "Port": 1337,
+    "Timestamp": "2026-04-13T04:23:26.011Z",
+    "Scheme": "http"
+  }
+]

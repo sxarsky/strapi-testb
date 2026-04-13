@@ -1,0 +1,22 @@
+[
+  {
+    "Source": "192.168.65.1:40000",
+    "Destination": "localhost",
+    "RequestBody": "{\"urls\":[\"https://picsum.photos/id/237/200/300.jpg\",\"not-a-valid-url-xyz\"],\"folderId\":null}",
+    "ResponseBody": "{\"data\":[{\"id\":1,\"name\":\"300.jpg\",\"url\":\"/uploads/300.jpg\",\"mime\":\"image/jpeg\",\"size\":8.04,\"width\":200,\"height\":300}],\"errors\":[{\"name\":\"not-a-valid-url-xyz\",\"message\":\"Invalid URL: Only http and https protocols are supported\"}]}",
+    "RequestHeaders": {
+      "Content-Type": ["application/json"],
+      "Authorization": ["Bearer SKYRAMP_PLACEHOLDER_TOKEN"]
+    },
+    "ResponseHeaders": {
+      "Content-Type": ["application/json"]
+    },
+    "Method": "POST",
+    "Path": "/upload/unstable/stream-from-urls",
+    "QueryParams": {},
+    "StatusCode": 200,
+    "Port": 1337,
+    "Timestamp": "2026-04-13T04:23:28.000Z",
+    "Scheme": "http"
+  }
+]
