@@ -1,0 +1,2 @@
+packages/core/content-releases/server/src/services/__tests__/release.test.ts
+tests/api/plugins/content-releases/releases.test.api.ts

@@ -1,0 +1,32 @@
+### What does it do?
+
+In content releases, there's a bug when publishing two draft entries that have a relation. After publishing the release, we can't retrieve the relation when calling the API.
+It's mainly because the two entries are published in parallel so the link between the two new published entries in the DB isn't created in the join table.
+
+Video of the issue:
+
+https://github.com/user-attachments/assets/519e8636-35cd-40f4-ae89-fb173dcfb9b5
+
+
+After the fix:
+
+https://github.com/user-attachments/assets/430c3771-8368-4da4-964d-717df669fbbe
+
+
+### Why is it needed?
+
+To fix an important issue with publishing relations through the content releases.
+
+### How to test it?
+
+- Create two collection types that are linked together with a relation (e.g. Article <-> Section) with Draft and Publish
+- Create a draft of those collection types (don't forget to link them)
+- Create a new release and put both your drafts in the release (to publish them)
+- Publish the release
+-> You should be able to retrieve the relation through an API call
+
+### Related issue(s)/PR(s)
+
+Resolves 
+
+🚀

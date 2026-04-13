@@ -1,0 +1,9 @@
+{
+  "pr_number": 25551,
+  "title": "fix(content-releases): publish in right order to preserve relations",
+  "merge_commit": "25ea375b1bb32a31a5ba330ef3e4bb472124ca9f",
+  "merged_at": "2026-03-06T09:06:50Z",
+  "upstream_repo": "strapi/strapi",
+  "extracted_at": "2026-04-13T00:09:29Z",
+  "body": "### What does it do?\r\n\r\nIn content releases, there's a bug when publishing two draft entries that have a relation. After publishing the release, we can't retrieve the relation when calling the API.\r\nIt's mainly because the two entries are published in parallel so the link between the two new published entries in the DB isn't created in the join table.\r\n\r\nVideo of the issue:\r\n\r\nhttps://github.com/user-attachments/assets/519e8636-35cd-40f4-ae89-fb173dcfb9b5\r\n\r\n\r\nAfter the fix:\r\n\r\nhttps://github.com/user-attachments/assets/430c3771-8368-4da4-964d-717df669fbbe\r\n\r\n\r\n### Why is it needed?\r\n\r\nTo fix an important issue with publishing relations through the content releases.\r\n\r\n### How to test it?\r\n\r\n- Create two collection types that are linked together with a relation (e.g. Article <-> Section) with Draft and Publish\r\n- Create a draft of those collection types (don't forget to link them)\r\n- Create a new release and put both your drafts in the release (to publish them)\r\n- Publish the release\r\n-> You should be able to retrieve the relation through an API call\r\n\r\n### Related issue(s)/PR(s)\r\n\r\nResolves https://github.com/strapi/strapi/issues/24215\r\n\r\n🚀"
+}

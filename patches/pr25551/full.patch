@@ -1,0 +1,489 @@
+diff --git a/packages/core/content-releases/server/src/services/__tests__/release.test.ts b/packages/core/content-releases/server/src/services/__tests__/release.test.ts
+index 9e6fd507..cf7ad6c0 100644
+--- a/packages/core/content-releases/server/src/services/__tests__/release.test.ts
++++ b/packages/core/content-releases/server/src/services/__tests__/release.test.ts
+@@ -360,6 +360,172 @@ describe('Release service', () => {
+       expect(mockPublish).toHaveBeenCalledTimes(2);
+       expect(mockUnpublish).toHaveBeenCalledTimes(2);
+     });
++
++    it('publishes content types in dependency order so relations are resolved correctly', async () => {
++      const ARTICLE_UID = 'api::article.article';
++      const CATEGORY_UID = 'api::category.category';
++
++      mockExecute.mockReturnValueOnce({ id: 1, releasedAt: null });
++
++      const documentsCallOrder: string[] = [];
++      const documentsMock = jest.fn((contentType: string) => {
++        documentsCallOrder.push(contentType);
++        return {
++          findFirst: jest.fn().mockReturnValue({ id: 1 }),
++          publish: mockPublish,
++          unpublish: mockUnpublish,
++        };
++      });
++
++      const articleModel = {
++        info: { displayName: 'Article' },
++        options: { draftAndPublish: true },
++        attributes: {
++          category: { type: 'relation', target: CATEGORY_UID },
++        },
++      };
++
++      const categoryModel = {
++        info: { displayName: 'Category' },
++        options: { draftAndPublish: true },
++        attributes: {},
++      };
++
++      const getModelMock = jest.fn((uid: string) => {
++        if (uid === ARTICLE_UID) return articleModel;
++        if (uid === CATEGORY_UID) return categoryModel;
++        return null;
++      });
++
++      const strapiMock = {
++        ...baseStrapiMock,
++        getModel: getModelMock,
++        contentTypes: {
++          [ARTICLE_UID]: {},
++          [CATEGORY_UID]: {},
++        },
++        documents: documentsMock,
++        db: {
++          ...baseStrapiMock.db,
++          query: jest.fn().mockImplementation((modelUid: string) => {
++            if (modelUid === 'plugin::content-releases.release-action') {
++              return {
++                findMany: jest.fn().mockResolvedValue([
++                  { contentType: ARTICLE_UID, type: 'publish', entryDocumentId: 'doc1' },
++                  { contentType: CATEGORY_UID, type: 'publish', entryDocumentId: 'doc2' },
++                ]),
++              };
++            }
++            return {
++              update: jest
++                .fn()
++                .mockResolvedValue({ id: 1, status: 'done', releasedAt: new Date() }),
++            };
++          }),
++        },
++      };
++
++      // @ts-expect-error Ignore missing properties
++      const releaseService = createReleaseService({ strapi: strapiMock });
++
++      await releaseService.publish(1);
++
++      // Category (relation target) must be published before Article (relation source)
++      const categoryIndex = documentsCallOrder.indexOf(CATEGORY_UID);
++      const articleIndex = documentsCallOrder.indexOf(ARTICLE_UID);
++      expect(categoryIndex).toBeGreaterThanOrEqual(0);
++      expect(articleIndex).toBeGreaterThanOrEqual(0);
++      expect(categoryIndex).toBeLessThan(articleIndex);
++    });
++
++    it('publishes in dependency order when relation is in a component', async () => {
++      const ARTICLE_UID = 'api::article.article';
++      const CATEGORY_UID = 'api::category.category';
++      const BLOCK_UID = 'basic.block';
++
++      mockExecute.mockReturnValueOnce({ id: 1, releasedAt: null });
++
++      const documentsCallOrder: string[] = [];
++      const documentsMock = jest.fn((contentType: string) => {
++        documentsCallOrder.push(contentType);
++        return {
++          findFirst: jest.fn().mockReturnValue({ id: 1 }),
++          publish: mockPublish,
++          unpublish: mockUnpublish,
++        };
++      });
++
++      const blockComponent = {
++        info: { displayName: 'Block' },
++        attributes: {
++          category: { type: 'relation', target: CATEGORY_UID },
++        },
++      };
++
++      const articleModel = {
++        info: { displayName: 'Article' },
++        options: { draftAndPublish: true },
++        attributes: {
++          block: { type: 'component', component: BLOCK_UID },
++        },
++      };
++
++      const categoryModel = {
++        info: { displayName: 'Category' },
++        options: { draftAndPublish: true },
++        attributes: {},
++      };
++
++      const getModelMock = jest.fn((uid: string) => {
++        if (uid === ARTICLE_UID) return articleModel;
++        if (uid === CATEGORY_UID) return categoryModel;
++        if (uid === BLOCK_UID) return blockComponent;
++        return null;
++      });
++
++      const strapiMock = {
++        ...baseStrapiMock,
++        getModel: getModelMock,
++        contentTypes: {
++          [ARTICLE_UID]: {},
++          [CATEGORY_UID]: {},
++        },
++        components: {
++          [BLOCK_UID]: blockComponent,
++        },
++        documents: documentsMock,
++        db: {
++          ...baseStrapiMock.db,
++          query: jest.fn().mockImplementation((modelUid: string) => {
++            if (modelUid === 'plugin::content-releases.release-action') {
++              return {
++                findMany: jest.fn().mockResolvedValue([
++                  { contentType: ARTICLE_UID, type: 'publish', entryDocumentId: 'doc1' },
++                  { contentType: CATEGORY_UID, type: 'publish', entryDocumentId: 'doc2' },
++                ]),
++              };
++            }
++            return {
++              update: jest
++                .fn()
++                .mockResolvedValue({ id: 1, status: 'done', releasedAt: new Date() }),
++            };
++          }),
++        },
++      };
++
++      // @ts-expect-error Ignore missing properties
++      const releaseService = createReleaseService({ strapi: strapiMock });
++
++      await releaseService.publish(1);
++
++      // Category must be published before Article (relation is in Article's component)
++      const categoryIndex = documentsCallOrder.indexOf(CATEGORY_UID);
++      const articleIndex = documentsCallOrder.indexOf(ARTICLE_UID);
++      expect(categoryIndex).toBeGreaterThanOrEqual(0);
++      expect(articleIndex).toBeGreaterThanOrEqual(0);
++      expect(categoryIndex).toBeLessThan(articleIndex);
++    });
+   });
+ 
+   describe('delete', () => {
+diff --git a/packages/core/content-releases/server/src/services/release.ts b/packages/core/content-releases/server/src/services/release.ts
+index 099c406e..0105f16e 100644
+--- a/packages/core/content-releases/server/src/services/release.ts
++++ b/packages/core/content-releases/server/src/services/release.ts
+@@ -14,7 +14,7 @@ import type {
+ } from '../../../shared/contracts/releases';
+ import type { ReleaseAction } from '../../../shared/contracts/release-actions';
+ import type { UserInfo } from '../../../shared/types';
+-import { getService } from '../utils';
++import { getService, getPublishOrderForContentTypes } from '../utils';
+ 
+ const createReleaseService = ({ strapi }: { strapi: Core.Strapi }) => {
+   const dispatchWebhook = (
+@@ -294,20 +294,25 @@ const createReleaseService = ({ strapi }: { strapi: Core.Strapi }) => {
+ 
+             const formattedActions = await getFormattedActions(releaseId);
+ 
+-            await strapi.db.transaction(async () =>
+-              Promise.all(
+-                Object.keys(formattedActions).map(async (contentTypeUid) => {
+-                  const contentType = contentTypeUid as UID.ContentType;
+-                  const { publish, unpublish } = formattedActions[contentType];
+-
+-                  return Promise.all([
+-                    ...publish.map((params) => strapi.documents(contentType).publish(params)),
+-                    ...unpublish.map((params) => strapi.documents(contentType).unpublish(params)),
+-                  ]);
+-                })
+-              )
++            // Publish content types in dependency order so that when entity A has a relation
++            // to entity B, B is published first to keep this relation.
++            const contentTypeUids = getPublishOrderForContentTypes(
++              Object.keys(formattedActions) as UID.ContentType[],
++              { strapi }
+             );
+ 
++            await strapi.db.transaction(async () => {
++              for (const contentTypeUid of contentTypeUids) {
++                const contentType = contentTypeUid as UID.ContentType;
++                const { publish, unpublish } = formattedActions[contentType];
++
++                await Promise.all([
++                  ...publish.map((params) => strapi.documents(contentType).publish(params)),
++                  ...unpublish.map((params) => strapi.documents(contentType).unpublish(params)),
++                ]);
++              }
++            });
++
+             const release = await strapi.db.query(RELEASE_MODEL_UID).update({
+               where: {
+                 id: releaseId,
+diff --git a/packages/core/content-releases/server/src/utils/index.ts b/packages/core/content-releases/server/src/utils/index.ts
+index b7bab04c..707f7cc4 100644
+--- a/packages/core/content-releases/server/src/utils/index.ts
++++ b/packages/core/content-releases/server/src/utils/index.ts
+@@ -1,3 +1,5 @@
++import { contentTypes as contentTypesUtils } from '@strapi/utils';
++
+ import type { UID, Data, Core } from '@strapi/types';
+ 
+ import type { SettingsService } from '../services/settings';
+@@ -124,3 +126,120 @@ export const getEntryStatus = async (contentType: UID.ContentType, entry: Data.C
+ 
+   return 'published';
+ };
++
++/**
++ * Recursively collects content type UIDs that a model (content type or component) has relations to.
++ * Go through component and dynamic zone attributes to find nested relations.
++ */
++const collectRelationTargets = (
++  modelUid: string,
++  strapi: Core.Strapi,
++  visited = new Set<string>()
++): Set<string> => {
++  const targets = new Set<string>();
++  if (visited.has(modelUid)) {
++    return targets;
++  }
++  visited.add(modelUid);
++
++  const model = strapi.getModel(modelUid as UID.Schema);
++  if (!model?.attributes) {
++    return targets;
++  }
++
++  for (const attribute of Object.values(model.attributes) as Array<{
++    type?: string;
++    target?: string;
++    component?: string;
++    components?: string[];
++  }>) {
++    if (attribute?.type === 'relation' && attribute.target) {
++      targets.add(attribute.target);
++    }
++    if (attribute?.type === 'component' && attribute.component) {
++      for (const t of collectRelationTargets(attribute.component, strapi, visited)) {
++        targets.add(t);
++      }
++    }
++    if (attribute?.type === 'dynamiczone' && attribute.components) {
++      for (const compUid of attribute.components) {
++        for (const t of collectRelationTargets(compUid, strapi, visited)) {
++          targets.add(t);
++        }
++      }
++    }
++  }
++  return targets;
++};
++
++/**
++ * Returns content type UIDs sorted by relation dependency order for publishing.
++ * When content type A has a relation to content type B (both with draft & publish),
++ * B will appear before A in the result. This ensures that when publishing a release,
++ * related entities are published first, so that relation IDs can be correctly
++ * resolved (published target must exist when publishing source).
++ *
++ * Relations in components (nested or not) and dynamic zones are also considered.
++ *
++ * @param contentTypeUids - Content type UIDs that will be published in the release
++ * @param strapi - Strapi instance
++ * @returns Content type UIDs in publish order (dependencies first)
++ */
++export const getPublishOrderForContentTypes = (
++  contentTypeUids: UID.ContentType[],
++  { strapi }: { strapi: Core.Strapi }
++): UID.ContentType[] => {
++  const uidSet = new Set(contentTypeUids);
++
++  // Build dependency graph: source depends on target (source must be published after target)
++  const dependencies = new Map<UID.ContentType, Set<UID.ContentType>>();
++
++  for (const uid of contentTypeUids) {
++    const model = strapi.getModel(uid);
++    if (model && contentTypesUtils.hasDraftAndPublish(model)) {
++      const relationTargets = collectRelationTargets(uid, strapi);
++
++      for (const targetUid of relationTargets) {
++        const targetContentTypeUid = targetUid as UID.ContentType;
++        const isTargetInRelease =
++          uidSet.has(targetContentTypeUid) && targetContentTypeUid in strapi.contentTypes;
++        const targetModel = strapi.getModel(targetContentTypeUid);
++        const targetHasDraftAndPublish =
++          targetModel && contentTypesUtils.hasDraftAndPublish(targetModel);
++
++        if (isTargetInRelease && targetHasDraftAndPublish) {
++          let dependencySet = dependencies.get(uid);
++          if (!dependencySet) {
++            dependencySet = new Set();
++            dependencies.set(uid, dependencySet);
++          }
++          dependencySet.add(targetContentTypeUid);
++        }
++      }
++    }
++  }
++
++  // Topological sort: dependencies first
++  const sorted: UID.ContentType[] = [];
++  const visited = new Set<UID.ContentType>();
++  const visiting = new Set<UID.ContentType>();
++
++  const visit = (uid: UID.ContentType) => {
++    if (visited.has(uid)) return;
++    if (visiting.has(uid)) return; // No cycle in valid schemas
++
++    visiting.add(uid);
++    for (const dep of dependencies.get(uid) ?? []) {
++      visit(dep);
++    }
++    visiting.delete(uid);
++    visited.add(uid);
++    sorted.push(uid);
++  };
++
++  for (const uid of contentTypeUids) {
++    visit(uid);
++  }
++
++  return sorted;
++};
+diff --git a/tests/api/plugins/content-releases/releases.test.api.ts b/tests/api/plugins/content-releases/releases.test.api.ts
+index 253caf4e..23569fb0 100644
+--- a/tests/api/plugins/content-releases/releases.test.api.ts
++++ b/tests/api/plugins/content-releases/releases.test.api.ts
+@@ -1,7 +1,7 @@
+ 'use strict';
+ 
+ import { createStrapiInstance } from 'api-tests/strapi';
+-import { createAuthRequest } from 'api-tests/request';
++import { createAuthRequest, createContentAPIRequest } from 'api-tests/request';
+ import { describeOnCondition } from 'api-tests/utils';
+ import { createTestBuilder } from 'api-tests/builder';
+ 
+@@ -28,10 +28,42 @@ const productModel = {
+   },
+ };
+ 
++const categoryUID = 'api::category.category';
++const categoryModel = {
++  draftAndPublish: true,
++  pluginOptions: {},
++  singularName: 'category',
++  pluralName: 'categories',
++  displayName: 'Category',
++  kind: 'collectionType',
++  attributes: {
++    name: { type: 'string' },
++  },
++};
++
++const articleUID = 'api::article.article';
++const articleModel = {
++  draftAndPublish: true,
++  pluginOptions: {},
++  singularName: 'article',
++  pluralName: 'articles',
++  displayName: 'Article',
++  kind: 'collectionType',
++  attributes: {
++    title: { type: 'string' },
++    categories: {
++      type: 'relation',
++      relation: 'manyToMany',
++      target: 'api::category.category',
++    },
++  },
++};
++
+ describeOnCondition(edition === 'EE')('Content Releases API', () => {
+   const builder = createTestBuilder();
+   let strapi;
+   let rq;
++  let rqContent;
+   let validEntries = [];
+   let invalidEntries = [];
+ 
+@@ -86,9 +118,13 @@ describeOnCondition(edition === 'EE')('Content Releases API', () => {
+   };
+ 
+   beforeAll(async () => {
+-    await builder.addContentType(productModel).build();
++    await builder
++      .addContentType(productModel)
++      .addContentTypes([categoryModel, articleModel])
++      .build();
+     strapi = await createStrapiInstance();
+     rq = await createAuthRequest({ strapi });
++    rqContent = createContentAPIRequest({ strapi });
+ 
+     jest.useFakeTimers();
+     jest.setSystemTime(new Date('2024-01-01T00:00:00.000Z'));
+@@ -625,6 +661,58 @@ describeOnCondition(edition === 'EE')('Content Releases API', () => {
+         'description must be a `string` type, but the final value was: `null`.'
+       );
+     });
++
++    test('retrieves relations correctly in content API after publishing release', async () => {
++      const categoryEntry = await createEntry(categoryUID, { name: 'Tech' });
++      const articleEntry = await createEntry(articleUID, {
++        title: 'My Article',
++        categories: [{ documentId: categoryEntry.data.documentId }],
++      });
++
++      const createReleaseRes = await createRelease();
++      const release = createReleaseRes.body.data;
++
++      await createReleaseAction(release.id, {
++        contentType: categoryUID,
++        entryDocumentId: categoryEntry.data.documentId,
++        type: 'publish',
++      });
++      await createReleaseAction(release.id, {
++        contentType: articleUID,
++        entryDocumentId: articleEntry.data.documentId,
++        type: 'publish',
++      });
++
++      const publishRes = await rq({
++        method: 'POST',
++        url: `/content-releases/${release.id}/publish`,
++      });
++      expect(publishRes.statusCode).toBe(200);
++      expect(publishRes.body.data.status).toBe('done');
++
++      const apiRes = await rqContent({
++        method: 'GET',
++        url: `/articles`,
++        qs: { populate: 'categories' },
++      });
++
++      expect(apiRes.statusCode).toBe(200);
++      expect(apiRes.body.data).toHaveLength(1);
++
++      const article = apiRes.body.data[0];
++      expect(article.attributes?.title ?? article.title).toBe('My Article');
++
++      const categories =
++        article.attributes?.categories?.data ??
++        article.attributes?.categories ??
++        article.categories;
++      expect(categories).toBeDefined();
++      const categoryList = Array.isArray(categories) ? categories : [categories];
++      expect(categoryList).toHaveLength(1);
++      const categoryData = categoryList[0];
++      const categoryName = categoryData.attributes?.name ?? categoryData.name;
++      expect(categoryName).toBe('Tech');
++    });
+   });
+ 
+   describe('Find Many Releases', () => {
