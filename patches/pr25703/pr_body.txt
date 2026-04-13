@@ -1,0 +1,52 @@
+### What does it do?
+
+Currently, the fill from another locale feature is not retrieving relations. This PR finally fixes that 🙌
+
+- In the case of a localizable relation, we want to find the associated variation in the asked locale.
+  - If it exists, we retrieve and populate it automatically
+  - If not, we just leave the field empty
+- In the case of a non-localizable relation, it's easy, we just retrieve the exact same entry.
+
+It's taking the latest (most up to date) version of the document.
+
+1. First test
+
+In the following video you can see the retrieving of both localized (Category) and non-localized (Country) relations (also tested in dynamic zones and components).
+In the second part of the video we remove the localized entry to test that it's not retrieved anymore.
+
+https://github.com/user-attachments/assets/fa440f37-0161-41b7-baad-4a7b2047f76c
+
+### Why is it needed?
+
+This is a highly requested enhancement for this feature (see related issues / PRs) and was a big pain point raised by the community.
+
+### How to test it?
+
+You can watch the videos to reproduce the tests but basically you would need:
+- 1 collection type A (non-localizable)
+- 1 collection type B (localizable)
+- 1 collection type C (also localizable)
+  - 1 relation to A (no matter the nature of the relation)
+  - 1 relation to B (same)
+
+- Create an A entry
+- Create a B entry (in English)
+- Create another locale of the entry
+- Create a C entry and select the newly B entry created (in English)
+- Change the locale to the second you choose for your B entry
+- Click on "Fill from another locale" and select it
+-> You should see everything filled from the English locale and the correct translated relations
+
+You can delete the variation you created and try the "Fill from another locale" again, this time, the localizable relation shouldn't be retrieved.
+
+ℹ️ You can test with Draft and Publish enabled but you might also want to test with the feature disabled and it should still work the same.
+
+The retrieval of relations should work in nested dynamic zones and components also.
+
+### Related issue(s)/PR(s)
+
+Fixes 
+Fixes 
+Part of the pain points raised by the community: 
+
+🚀

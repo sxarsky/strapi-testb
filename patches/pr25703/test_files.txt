@@ -1,0 +1,4 @@
+packages/plugins/i18n/server/src/controllers/__tests__/content-types.test.ts
+packages/plugins/i18n/server/src/services/__tests__/fill-from-locale.test.ts
+tests/api/plugins/i18n/content-manager/fill-from-locale.test.api.js
+tests/e2e/tests/i18n/fill-from-locale.spec.ts

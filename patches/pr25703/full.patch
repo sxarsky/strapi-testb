@@ -1,0 +1,2315 @@
+diff --git a/packages/core/content-manager/admin/src/pages/EditView/components/FormInputs/Relations/Relations.tsx b/packages/core/content-manager/admin/src/pages/EditView/components/FormInputs/Relations/Relations.tsx
+index 4e754783..d8316428 100644
+--- a/packages/core/content-manager/admin/src/pages/EditView/components/FormInputs/Relations/Relations.tsx
++++ b/packages/core/content-manager/admin/src/pages/EditView/components/FormInputs/Relations/Relations.tsx
+@@ -282,11 +282,25 @@ const RelationsField = React.forwardRef<HTMLDivElement, RelationsFieldProps>(
+ 
+       const transformedRels = transformations([...serverData]);
+ 
++      /**
++       * Connect items (e.g. from fill-from-locale) may lack href/label. Ensure they have them
++       * so ListItem's getCollectionType(href) and display work correctly.
++       */
++      const connectItems = (field.value?.connect ?? []).map((rel: Relation) => {
++        const urlLocaleParam = rel.locale ? `?plugins[i18n][locale]=${rel.locale}` : '';
++        if (rel.href) return rel;
++        return {
++          ...rel,
++          label: rel.label ?? getRelationLabel(rel, props.mainField),
++          href: `../${COLLECTION_TYPES}/${targetModel}/${rel.documentId}${urlLocaleParam}`,
++        };
++      });
++
+       /**
+        * THIS IS CRUCIAL. If you don't sort by the __temp_key__ which comes from fractional indexing
+        * then the list will be in the wrong order.
+        */
+-      return [...transformedRels, ...(field.value?.connect ?? [])].sort((a, b) => {
++      return [...transformedRels, ...connectItems].sort((a, b) => {
+         if (a.__temp_key__ < b.__temp_key__) return -1;
+         if (a.__temp_key__ > b.__temp_key__) return 1;
+         return 0;
+diff --git a/packages/plugins/i18n/admin/src/components/CMHeaderActions.tsx b/packages/plugins/i18n/admin/src/components/CMHeaderActions.tsx
+index 0ddd4588..eedfd1f7 100644
+--- a/packages/plugins/i18n/admin/src/components/CMHeaderActions.tsx
++++ b/packages/plugins/i18n/admin/src/components/CMHeaderActions.tsx
+@@ -40,10 +40,10 @@ import { styled } from 'styled-components';
+ import { useAILocalizationJobsPolling } from '../hooks/useAILocalizationJobsPolling';
+ import { useI18n } from '../hooks/useI18n';
+ import { useGetAILocalizationJobsByDocumentQuery } from '../services/aiLocalizationJobs';
++import { useLazyGetFillFromLocaleDataQuery } from '../services/fillFromLocale';
+ import { useGetLocalesQuery } from '../services/locales';
+ import { useGetManyDraftRelationCountQuery } from '../services/relations';
+ import { useGetSettingsQuery } from '../services/settings';
+-import { cleanData } from '../utils/clean';
+ import { getTranslation } from '../utils/getTranslation';
+ import { capitalize } from '../utils/strings';
+ 
+@@ -528,19 +528,16 @@ const FillFromAnotherLocaleAction = ({
+   collectionType,
+ }: HeaderActionProps) => {
+   const { formatMessage } = useIntl();
++  const { toggleNotification } = useNotification();
++  const { _unstableFormatAPIError: formatAPIError } = useAPIErrorHandler();
+   const [{ query }] = useQueryParams<I18nBaseQuery>();
+   const { hasI18n } = useI18n();
+   const currentDesiredLocale = query.plugins?.i18n?.locale;
+   const [localeSelected, setLocaleSelected] = React.useState<string | null>(null);
+   const setValues = useForm('FillFromAnotherLocale', (state) => state.setValues);
+ 
+-  const { getDocument } = useDocumentActions();
+-  const { schema, components } = useDocument({
+-    model,
+-    documentId,
+-    collectionType,
+-    params: { locale: currentDesiredLocale },
+-  });
++  const [getFillFromLocaleData, { isLoading: isFillFromLocaleLoading }] =
++    useLazyGetFillFromLocaleDataQuery();
+   const { data: locales = [] } = useGetLocalesQuery();
+ 
+   const isAIAvailable = useAIAvailability();
+@@ -552,23 +549,30 @@ const FillFromAnotherLocaleAction = ({
+     : [];
+ 
+   const fillFromLocale = (onClose: () => void) => async () => {
+-    const response = await getDocument({
+-      collectionType,
+-      model,
+-      documentId,
+-      params: { locale: localeSelected },
+-    });
+-    if (!response || !schema) {
++    if (!localeSelected || !currentDesiredLocale) {
+       return;
+     }
+ 
+-    const { data } = response;
+-
+-    const cleanedData = cleanData(data, schema, components);
+-
+-    setValues(cleanedData);
++    try {
++      const { data } = await getFillFromLocaleData({
++        model,
++        documentId,
++        sourceLocale: localeSelected,
++        targetLocale: currentDesiredLocale,
++        collectionType: collectionType as 'collection-types' | 'single-types',
++      }).unwrap();
++
++      if (data) {
++        setValues(data);
++      }
+ 
+-    onClose();
++      onClose();
++    } catch (err) {
++      toggleNotification({
++        type: 'danger',
++        message: formatAPIError(err as Parameters<typeof formatAPIError>[0]),
++      });
++    }
+   };
+ 
+   if (!hasI18n) {
+@@ -633,13 +637,24 @@ const FillFromAnotherLocaleAction = ({
+           </Dialog.Body>
+           <Dialog.Footer>
+             <Flex gap={2} width="100%">
+-              <Button flex="auto" variant="tertiary" onClick={onClose}>
++              <Button
++                flex="auto"
++                variant="tertiary"
++                onClick={onClose}
++                disabled={isFillFromLocaleLoading}
++              >
+                 {formatMessage({
+                   id: getTranslation('CMEditViewCopyLocale.cancel-text'),
+                   defaultMessage: 'No, cancel',
+                 })}
+               </Button>
+-              <Button flex="auto" variant="success" onClick={fillFromLocale(onClose)}>
++              <Button
++                flex="auto"
++                variant="success"
++                onClick={fillFromLocale(onClose)}
++                loading={isFillFromLocaleLoading}
++                disabled={isFillFromLocaleLoading}
++              >
+                 {formatMessage({
+                   id: getTranslation('CMEditViewCopyLocale.submit-text'),
+                   defaultMessage: 'Yes, fill in',
+diff --git a/packages/plugins/i18n/admin/src/services/fillFromLocale.ts b/packages/plugins/i18n/admin/src/services/fillFromLocale.ts
+new file mode 100644
+index 00000000..6a6b02b1
+--- /dev/null
++++ b/packages/plugins/i18n/admin/src/services/fillFromLocale.ts
+@@ -0,0 +1,17 @@
++import { i18nApi } from './api';
++
++import type { FillFromLocale } from '../../../shared/contracts/content-manager';
++
++const fillFromLocaleApi = i18nApi.injectEndpoints({
++  endpoints: (builder) => ({
++    getFillFromLocaleData: builder.query<FillFromLocale.Response, FillFromLocale.Params>({
++      query: ({ model, ...params }) => ({
++        url: `/i18n/content-manager/get-fill-from-locale/${model}`,
++        config: { params },
++      }),
++    }),
++  }),
++});
++
++export const { useGetFillFromLocaleDataQuery, useLazyGetFillFromLocaleDataQuery } =
++  fillFromLocaleApi;
+diff --git a/packages/plugins/i18n/admin/src/utils/clean.ts b/packages/plugins/i18n/admin/src/utils/clean.ts
+deleted file mode 100644
+index 65840fc7..00000000
+--- a/packages/plugins/i18n/admin/src/utils/clean.ts
++++ /dev/null
+@@ -1,106 +0,0 @@
+-import type { Schema } from '@strapi/types';
+-
+-type Data = Record<keyof Schema.ContentType['attributes'], any>;
+-
+-const cleanData = (
+-  data: Data,
+-  schema: Schema.ContentType,
+-  components: Record<string, Schema.Component>
+-) => {
+-  const cleanedData = removeFields(data, [
+-    'createdAt',
+-    'createdBy',
+-    'updatedAt',
+-    'updatedBy',
+-    'id',
+-    'documentId',
+-    'publishedAt',
+-    'strapi_stage',
+-    'strapi_assignee',
+-    'locale',
+-    'status',
+-  ]);
+-
+-  const cleanedDataWithoutPasswordAndRelation = recursiveRemoveFieldTypes(
+-    cleanedData,
+-    schema,
+-    components,
+-    ['relation', 'password']
+-  );
+-
+-  return cleanedDataWithoutPasswordAndRelation;
+-};
+-
+-const removeFields = (data: Data, fields: Array<keyof Schema.ContentType['attributes']>) => {
+-  return Object.keys(data).reduce((acc, current) => {
+-    if (fields.includes(current)) {
+-      return acc;
+-    }
+-    acc[current] = data[current];
+-    return acc;
+-  }, {} as Data);
+-};
+-
+-const recursiveRemoveFieldTypes = (
+-  data: Data,
+-  schema: Schema.Schema,
+-  components: Record<string, Schema.Component>,
+-  fields: Array<keyof Schema.ContentType['attributes']>
+-) => {
+-  return Object.keys(data).reduce((acc, current) => {
+-    const attribute = schema.attributes[current] ?? { type: undefined };
+-
+-    if (fields.includes(attribute.type)) {
+-      return acc;
+-    }
+-
+-    if (attribute.type === 'dynamiczone') {
+-      acc[current] = data[current].map((componentValue: any, index: number) => {
+-        const { id: _, ...rest } = recursiveRemoveFieldTypes(
+-          componentValue,
+-          components[componentValue.__component],
+-          components,
+-          fields
+-        );
+-
+-        return {
+-          ...rest,
+-          __temp_key__: index + 1,
+-        };
+-      });
+-    } else if (attribute.type === 'component') {
+-      const { repeatable, component } = attribute;
+-
+-      if (repeatable) {
+-        acc[current] = (data[current] ?? []).map((compoData: any, index: number) => {
+-          const { id: _, ...rest } = recursiveRemoveFieldTypes(
+-            compoData,
+-            components[component],
+-            components,
+-            fields
+-          );
+-
+-          return {
+-            ...rest,
+-            __temp_key__: index + 1,
+-          };
+-        });
+-      } else if (data[current]) {
+-        const { id: _, ...rest } = recursiveRemoveFieldTypes(
+-          data[current],
+-          components[component],
+-          components,
+-          fields
+-        );
+-
+-        acc[current] = rest;
+-      }
+-    } else {
+-      acc[current] = data[current];
+-    }
+-
+-    return acc;
+-  }, {} as any);
+-};
+-
+-export { cleanData };
+diff --git a/packages/plugins/i18n/server/src/controllers/__tests__/content-types.test.ts b/packages/plugins/i18n/server/src/controllers/__tests__/content-types.test.ts
+index 7b013bd0..2d5da374 100644
+--- a/packages/plugins/i18n/server/src/controllers/__tests__/content-types.test.ts
++++ b/packages/plugins/i18n/server/src/controllers/__tests__/content-types.test.ts
+@@ -11,20 +11,43 @@ describe('i18n - Controller - content-types', () => {
+     beforeEach(() => {
+       const contentType = () => ({});
+       const getModel = () => ({});
++
++      const documentMetadataService = {
++        getMetadata: () => ({
++          availableLocales: [{ id: 2, locale: 'it', publishedAt: null }],
++        }),
++      };
++
++      const permissionCheckerService = {
++        create: () => ({
++          cannot: { read: () => false },
++        }),
++      };
++
++      const contentManagerPlugin = {
++        services: {
++          'document-metadata': documentMetadataService,
++          'permission-checker': permissionCheckerService,
++        } as Record<string, unknown>,
++        service(name: string) {
++          return this.services[name];
++        },
++      };
++
+       global.strapi = {
+         contentType,
+         getModel,
++        plugin(name: string) {
++          if (name === 'content-manager') return contentManagerPlugin;
++        },
++        service(name: string) {
++          if (name === 'admin::constants') {
++            return { default: { READ_ACTION: 'read', CREATE_ACTION: 'create' } };
++          }
++        },
+         plugins: {
+           i18n: { services: { 'content-types': ctService } },
+-          'content-manager': {
+-            services: {
+-              'document-metadata': {
+-                getMetadata: () => ({
+-                  availableLocales: [{ id: 2, locale: 'it', publishedAt: null }],
+-                }),
+-              },
+-            },
+-          },
++          'content-manager': contentManagerPlugin,
+         },
+         admin: {
+           services: { constants: { default: { READ_ACTION: 'read', CREATE_ACTION: 'create' } } },
+diff --git a/packages/plugins/i18n/server/src/controllers/content-types.ts b/packages/plugins/i18n/server/src/controllers/content-types.ts
+index 9bf646c2..77f8600c 100644
+--- a/packages/plugins/i18n/server/src/controllers/content-types.ts
++++ b/packages/plugins/i18n/server/src/controllers/content-types.ts
+@@ -1,8 +1,12 @@
+ import { pick, uniq, prop, getOr, flatten, pipe, map } from 'lodash/fp';
+ import { contentTypes as contentTypesUtils, errors } from '@strapi/utils';
+-import type { Core } from '@strapi/types';
++import type { Core, UID } from '@strapi/types';
++import type { FillFromLocale } from '../../../shared/contracts/content-manager';
+ import { getService } from '../utils';
+-import { validateGetNonLocalizedAttributesInput } from '../validation/content-types';
++import {
++  validateGetNonLocalizedAttributesInput,
++  validateFillFromLocaleInput,
++} from '../validation/content-types';
+ 
+ const { ApplicationError } = errors;
+ 
+@@ -15,12 +19,21 @@ const getFirstLevelPath = map((path: string) => path.split('.')[0]);
+ 
+ const controller = {
+   async getNonLocalizedAttributes(ctx) {
+-    const { user } = ctx.state;
++    const { user, userAbility } = ctx.state;
+     const body = ctx.request.body as any;
+     const { model, id, locale } = body;
+ 
+     await validateGetNonLocalizedAttributesInput({ model, id, locale });
+ 
++    const permissionChecker = strapi
++      .plugin('content-manager')
++      .service('permission-checker')
++      .create({ userAbility, model });
++
++    if (permissionChecker.cannot.read()) {
++      return ctx.forbidden();
++    }
++
+     const {
+       copyNonLocalizedAttributes,
+       isLocalizedContentType,
+@@ -65,7 +78,18 @@ const controller = {
+     const permittedFields = pipe(flatten, getFirstLevelPath, uniq)(localePermissions);
+ 
+     const nonLocalizedFields = copyNonLocalizedAttributes(modelDef, entity);
+-    const sanitizedNonLocalizedFields = pick(permittedFields, nonLocalizedFields);
++    const pickedFields = pick(permittedFields, nonLocalizedFields);
++
++    // Guard relations: omit fields that point to content types the user cannot read
++    const sanitizedNonLocalizedFields = Object.fromEntries(
++      Object.entries(pickedFields).filter(([key]) => {
++        const attribute = modelDef.attributes?.[key] as any;
++        if (attribute?.type === 'relation' && attribute.target) {
++          return userAbility.can(READ_ACTION, attribute.target);
++        }
++        return true;
++      })
++    );
+ 
+     const availableLocalesResult = await strapi.plugins['content-manager']
+       .service('document-metadata')
+@@ -84,6 +108,52 @@ const controller = {
+       ),
+     };
+   },
++
++  async getFillFromLocaleData(ctx) {
++    const { userAbility } = ctx.state;
++    const { model } = ctx.params;
++
++    await validateFillFromLocaleInput(ctx.query);
++
++    const { documentId, sourceLocale, targetLocale } = ctx.query as unknown as Omit<
++      FillFromLocale.Params,
++      'model'
++    >;
++
++    const permissionChecker = strapi
++      .plugin('content-manager')
++      .service('permission-checker')
++      .create({ userAbility, model });
++
++    if (permissionChecker.cannot.read()) {
++      return ctx.forbidden();
++    }
++
++    const fillFromLocaleService = getService('fill-from-locale');
++
++    const rawDocument = await fillFromLocaleService.fetchRawDocument(
++      model as UID.ContentType,
++      sourceLocale,
++      documentId
++    );
++
++    if (!rawDocument) {
++      return ctx.notFound();
++    }
++
++    // Field-level filtering: strip fields the user cannot read on this content type
++    const sanitizedDocument = await permissionChecker.sanitizeOutput(rawDocument);
++
++    // Transform relations to target locale, skipping those the user cannot read
++    const data = await fillFromLocaleService.transformDocument(
++      sanitizedDocument as Record<string, unknown>,
++      model as UID.ContentType,
++      targetLocale,
++      userAbility
++    );
++
++    ctx.body = { data };
++  },
+ } satisfies Core.Controller;
+ 
+ export default controller;
+diff --git a/packages/plugins/i18n/server/src/routes/admin.ts b/packages/plugins/i18n/server/src/routes/admin.ts
+index 46076564..4ea8f766 100644
+--- a/packages/plugins/i18n/server/src/routes/admin.ts
++++ b/packages/plugins/i18n/server/src/routes/admin.ts
+@@ -73,6 +73,20 @@ export default {
+         policies: ['admin::isAuthenticatedAdmin'],
+       },
+     },
++    {
++      method: 'GET',
++      path: '/content-manager/get-fill-from-locale/:model',
++      handler: 'content-types.getFillFromLocaleData',
++      config: {
++        policies: [
++          'admin::isAuthenticatedAdmin',
++          {
++            name: 'plugin::content-manager.hasPermissions',
++            config: { actions: ['plugin::content-manager.explorer.read'] },
++          },
++        ],
++      },
++    },
+     {
+       method: 'GET',
+       path: '/settings',
+diff --git a/packages/plugins/i18n/server/src/services/__tests__/fill-from-locale.test.ts b/packages/plugins/i18n/server/src/services/__tests__/fill-from-locale.test.ts
+new file mode 100644
+index 00000000..6ffc405f
+--- /dev/null
++++ b/packages/plugins/i18n/server/src/services/__tests__/fill-from-locale.test.ts
+@@ -0,0 +1,843 @@
++import { createFillFromLocaleService } from '../fill-from-locale';
++
++// ---------------------------------------------------------------------------
++// Helpers
++// ---------------------------------------------------------------------------
++
++const makeUserAbility = (canRead = true) => ({
++  can: jest.fn(() => canRead),
++});
++
++/** Build a mock strapi with sensible defaults and easy per-test overrides. */
++const createMockStrapi = (overrides: Record<string, unknown> = {}) => {
++  const documentsFindOne = jest.fn();
++  const documentsFindFirst = jest.fn();
++  const dbFindMany = jest.fn().mockResolvedValue([]);
++
++  const mockStrapi = {
++    getModel: jest.fn(),
++    documents: jest.fn(() => ({
++      findOne: documentsFindOne,
++      findFirst: documentsFindFirst,
++    })),
++    db: {
++      query: jest.fn(() => ({ findMany: dbFindMany })),
++    },
++    plugins: {
++      'content-manager': {
++        services: {
++          'populate-builder': () => ({
++            populateDeep: () => ({ build: () => Promise.resolve({}) }),
++          }),
++          'document-metadata': {
++            getStatus: jest.fn((entry: { publishedAt: unknown }) =>
++              entry.publishedAt ? 'published' : 'draft'
++            ),
++          },
++          'content-types': {
++            findConfiguration: jest.fn().mockResolvedValue({ settings: { mainField: 'name' } }),
++          },
++        },
++      },
++      i18n: {
++        services: {
++          'content-types': {
++            isLocalizedContentType: jest.fn().mockReturnValue(false),
++          },
++        },
++      },
++    },
++    ...overrides,
++  };
++
++  return { mockStrapi, documentsFindOne, documentsFindFirst, dbFindMany };
++};
++
++/** Create a service + set global.strapi in one call. */
++const makeService = (overrides: Record<string, unknown> = {}) => {
++  const mocks = createMockStrapi(overrides);
++  global.strapi = mocks.mockStrapi as any;
++  const service = createFillFromLocaleService({ strapi: mocks.mockStrapi as any });
++  return { service, ...mocks };
++};
++
++const MODEL = 'api::article.article';
++const TARGET_LOCALE = 'fr';
++
++// ---------------------------------------------------------------------------
++// fetchRawDocument
++// ---------------------------------------------------------------------------
++
++describe('fetchRawDocument', () => {
++  const documentId = 'doc-123';
++  const sourceLocale = 'en';
++
++  test('returns null when document not found', async () => {
++    const { service, documentsFindOne, mockStrapi } = makeService();
++    (mockStrapi.getModel as jest.Mock).mockReturnValue({ uid: MODEL, attributes: {} });
++    documentsFindOne.mockResolvedValue(null);
++
++    const result = await service.fetchRawDocument(MODEL as any, sourceLocale, documentId);
++
++    expect(result).toBeNull();
++    expect(documentsFindOne).toHaveBeenCalledWith(
++      expect.objectContaining({ documentId, locale: sourceLocale })
++    );
++  });
++
++  test('returns the raw document when found', async () => {
++    const { service, documentsFindOne, mockStrapi } = makeService();
++    (mockStrapi.getModel as jest.Mock).mockReturnValue({ uid: MODEL, attributes: {} });
++    const doc = { title: 'Hello', documentId, locale: sourceLocale };
++    documentsFindOne.mockResolvedValue(doc);
++
++    const result = await service.fetchRawDocument(MODEL as any, sourceLocale, documentId);
++
++    expect(result).toEqual(doc);
++  });
++
++  test('uses findFirst when documentId is omitted (single type)', async () => {
++    const { service, documentsFindFirst, mockStrapi } = makeService();
++    (mockStrapi.getModel as jest.Mock).mockReturnValue({ uid: MODEL, attributes: {} });
++    const doc = { title: 'ST', locale: sourceLocale };
++    documentsFindFirst.mockResolvedValue(doc);
++
++    const result = await service.fetchRawDocument(MODEL as any, sourceLocale);
++
++    expect(result).toEqual(doc);
++    expect(documentsFindFirst).toHaveBeenCalled();
++  });
++
++  test('throws when model not found', async () => {
++    const { service, mockStrapi } = makeService();
++    (mockStrapi.getModel as jest.Mock).mockReturnValue(null);
++
++    await expect(service.fetchRawDocument(MODEL as any, sourceLocale, documentId)).rejects.toThrow(
++      `Model ${MODEL} not found`
++    );
++  });
++});
++
++// ---------------------------------------------------------------------------
++// transformDocument — field filtering (processDocumentData)
++// ---------------------------------------------------------------------------
++
++describe('transformDocument — field filtering', () => {
++  const FIELDS_TO_REMOVE = [
++    'createdAt',
++    'createdBy',
++    'updatedAt',
++    'updatedBy',
++    'id',
++    'documentId',
++    'publishedAt',
++    'strapi_stage',
++    'strapi_assignee',
++    'locale',
++    'status',
++  ];
++
++  test('strips all FIELDS_TO_REMOVE', async () => {
++    const { service, mockStrapi } = makeService();
++    (mockStrapi.getModel as jest.Mock).mockReturnValue({
++      uid: MODEL,
++      attributes: { title: { type: 'string' } },
++    });
++
++    const doc: Record<string, unknown> = { title: 'Hello' };
++    FIELDS_TO_REMOVE.forEach((f) => {
++      doc[f] = 'should-be-removed';
++    });
++
++    const result = await service.transformDocument(
++      doc,
++      MODEL as any,
++      TARGET_LOCALE,
++      makeUserAbility()
++    );
++
++    expect(result).toEqual({ title: 'Hello' });
++    FIELDS_TO_REMOVE.forEach((f) => expect(result).not.toHaveProperty(f));
++  });
++
++  test('strips password fields', async () => {
++    const { service, mockStrapi } = makeService();
++    (mockStrapi.getModel as jest.Mock).mockReturnValue({
++      uid: MODEL,
++      attributes: {
++        title: { type: 'string' },
++        secret: { type: 'password' },
++      },
++    });
++
++    const result = await service.transformDocument(
++      { title: 'Hello', secret: 'hunter2' },
++      MODEL as any,
++      TARGET_LOCALE,
++      makeUserAbility()
++    );
++
++    expect(result).toEqual({ title: 'Hello' });
++    expect(result).not.toHaveProperty('secret');
++  });
++
++  test('passes through fields with no attribute definition', async () => {
++    const { service, mockStrapi } = makeService();
++    (mockStrapi.getModel as jest.Mock).mockReturnValue({
++      uid: MODEL,
++      attributes: {},
++    });
++
++    const result = await service.transformDocument(
++      { customField: 'value' },
++      MODEL as any,
++      TARGET_LOCALE,
++      makeUserAbility()
++    );
++
++    expect(result).toEqual({ customField: 'value' });
++  });
++
++  test('returns empty object for null/falsy data', async () => {
++    const { service, mockStrapi } = makeService();
++    (mockStrapi.getModel as jest.Mock).mockReturnValue({ uid: MODEL, attributes: {} });
++
++    const result = await service.transformDocument(
++      null as any,
++      MODEL as any,
++      TARGET_LOCALE,
++      makeUserAbility()
++    );
++
++    expect(result).toEqual({});
++  });
++});
++
++// ---------------------------------------------------------------------------
++// transformDocument — component handling
++// ---------------------------------------------------------------------------
++
++describe('transformDocument — components', () => {
++  test('processes a non-repeatable component recursively', async () => {
++    const { service, mockStrapi } = makeService();
++    (mockStrapi.getModel as jest.Mock).mockImplementation((uid: string) => {
++      if (uid === MODEL) {
++        return {
++          uid: MODEL,
++          attributes: {
++            seo: { type: 'component', component: 'shared.seo', repeatable: false },
++          },
++        };
++      }
++      // shared.seo schema
++      return {
++        uid,
++        attributes: {
++          title: { type: 'string' },
++          secret: { type: 'password' },
++        },
++      };
++    });
++
++    const result = await service.transformDocument(
++      { seo: { title: 'SEO title', secret: 'pass', id: 1 } },
++      MODEL as any,
++      TARGET_LOCALE,
++      makeUserAbility()
++    );
++
++    expect(result).toEqual({ seo: { title: 'SEO title' } });
++  });
++
++  test('passes null component value through as-is', async () => {
++    const { service, mockStrapi } = makeService();
++    (mockStrapi.getModel as jest.Mock).mockImplementation((uid: string) => {
++      if (uid === MODEL) {
++        return {
++          uid: MODEL,
++          attributes: { seo: { type: 'component', component: 'shared.seo', repeatable: false } },
++        };
++      }
++      return { uid, attributes: {} };
++    });
++
++    const result = await service.transformDocument(
++      { seo: null },
++      MODEL as any,
++      TARGET_LOCALE,
++      makeUserAbility()
++    );
++
++    expect(result).toEqual({ seo: null });
++  });
++
++  test('processes a repeatable component and adds __temp_key__', async () => {
++    const { service, mockStrapi } = makeService();
++    (mockStrapi.getModel as jest.Mock).mockImplementation((uid: string) => {
++      if (uid === MODEL) {
++        return {
++          uid: MODEL,
++          attributes: {
++            sections: { type: 'component', component: 'shared.section', repeatable: true },
++          },
++        };
++      }
++      return { uid, attributes: { heading: { type: 'string' }, id: { type: 'integer' } } };
++    });
++
++    const result = await service.transformDocument(
++      {
++        sections: [
++          { heading: 'First', id: 1 },
++          { heading: 'Second', id: 2 },
++        ],
++      },
++      MODEL as any,
++      TARGET_LOCALE,
++      makeUserAbility()
++    );
++
++    const sections = result.sections as any[];
++    expect(sections).toHaveLength(2);
++    expect(sections[0]).toMatchObject({ heading: 'First', __temp_key__: 1 });
++    expect(sections[1]).toMatchObject({ heading: 'Second', __temp_key__: 2 });
++    // id is in FIELDS_TO_REMOVE so it should be stripped
++    expect(sections[0]).not.toHaveProperty('id');
++  });
++
++  test('strips passwords inside components', async () => {
++    const { service, mockStrapi } = makeService();
++    (mockStrapi.getModel as jest.Mock).mockImplementation((uid: string) => {
++      if (uid === MODEL) {
++        return {
++          uid: MODEL,
++          attributes: { auth: { type: 'component', component: 'shared.auth', repeatable: false } },
++        };
++      }
++      return { uid, attributes: { username: { type: 'string' }, password: { type: 'password' } } };
++    });
++
++    const result = await service.transformDocument(
++      { auth: { username: 'admin', password: 'secret' } },
++      MODEL as any,
++      TARGET_LOCALE,
++      makeUserAbility()
++    );
++
++    expect((result.auth as any).username).toBe('admin');
++    expect(result.auth).not.toHaveProperty('password');
++  });
++});
++
++// ---------------------------------------------------------------------------
++// transformDocument — dynamic zone handling
++// ---------------------------------------------------------------------------
++
++describe('transformDocument — dynamic zones', () => {
++  test('processes each item with its __component schema and adds __temp_key__', async () => {
++    const { service, mockStrapi } = makeService();
++    (mockStrapi.getModel as jest.Mock).mockImplementation((uid: string) => {
++      if (uid === MODEL) {
++        return {
++          uid: MODEL,
++          attributes: { body: { type: 'dynamiczone' } },
++        };
++      }
++      if (uid === 'blocks.text') {
++        return { uid, attributes: { content: { type: 'richtext' } } };
++      }
++      if (uid === 'blocks.image') {
++        return { uid, attributes: { url: { type: 'string' } } };
++      }
++      return { uid, attributes: {} };
++    });
++
++    const result = await service.transformDocument(
++      {
++        body: [
++          { __component: 'blocks.text', content: 'Hello', id: 10 },
++          { __component: 'blocks.image', url: 'https://example.com/img.png', id: 11 },
++        ],
++      },
++      MODEL as any,
++      TARGET_LOCALE,
++      makeUserAbility()
++    );
++
++    const body = result.body as any[];
++    expect(body).toHaveLength(2);
++    expect(body[0]).toMatchObject({
++      __component: 'blocks.text',
++      content: 'Hello',
++      __temp_key__: 1,
++    });
++    expect(body[1]).toMatchObject({
++      __component: 'blocks.image',
++      url: 'https://example.com/img.png',
++      __temp_key__: 2,
++    });
++    // id is in FIELDS_TO_REMOVE
++    expect(body[0]).not.toHaveProperty('id');
++  });
++});
++
++// ---------------------------------------------------------------------------
++// transformDocument — relation handling (transformRelationsForLocale)
++// ---------------------------------------------------------------------------
++
++describe('transformDocument — relation handling', () => {
++  const TARGET_UID = 'api::category.category';
++
++  const modelWithRelation = (relationDef: object) => ({
++    uid: MODEL,
++    attributes: {
++      title: { type: 'string' },
++      category: { type: 'relation', ...relationDef },
++    },
++  });
++
++  test('returns empty connect/disconnect for morph relations', async () => {
++    const { service, mockStrapi } = makeService();
++    (mockStrapi.getModel as jest.Mock).mockReturnValue(
++      modelWithRelation({ relation: 'morphToOne', target: TARGET_UID })
++    );
++
++    const result = await service.transformDocument(
++      { title: 'Hi', category: { documentId: 'cat-1', id: 1 } },
++      MODEL as any,
++      TARGET_LOCALE,
++      makeUserAbility()
++    );
++
++    expect(result.category).toEqual({ connect: [], disconnect: [] });
++  });
++
++  test('returns empty when target UID is missing', async () => {
++    const { service, mockStrapi } = makeService();
++    (mockStrapi.getModel as jest.Mock).mockReturnValue(
++      modelWithRelation({ relation: 'manyToOne' /* no target */ })
++    );
++
++    const result = await service.transformDocument(
++      { title: 'Hi', category: { documentId: 'cat-1', id: 1 } },
++      MODEL as any,
++      TARGET_LOCALE,
++      makeUserAbility()
++    );
++
++    expect(result.category).toEqual({ connect: [], disconnect: [] });
++  });
++
++  test('returns empty when user cannot read the target content type', async () => {
++    const { service, mockStrapi } = makeService();
++    (mockStrapi.getModel as jest.Mock).mockReturnValue(
++      modelWithRelation({ relation: 'manyToOne', target: TARGET_UID })
++    );
++
++    const result = await service.transformDocument(
++      { title: 'Hi', category: { documentId: 'cat-1', id: 1 } },
++      MODEL as any,
++      TARGET_LOCALE,
++      makeUserAbility(false)
++    );
++
++    expect(result.category).toEqual({ connect: [], disconnect: [] });
++  });
++
++  test('returns empty for null relation value', async () => {
++    const { service, mockStrapi } = makeService();
++    (mockStrapi.getModel as jest.Mock).mockReturnValue(
++      modelWithRelation({ relation: 'manyToOne', target: TARGET_UID })
++    );
++
++    const result = await service.transformDocument(
++      { title: 'Hi', category: null },
++      MODEL as any,
++      TARGET_LOCALE,
++      makeUserAbility()
++    );
++
++    expect(result.category).toEqual({ connect: [], disconnect: [] });
++  });
++
++  test('returns empty when relation has no valid documentId', async () => {
++    const { service, mockStrapi } = makeService();
++    (mockStrapi.getModel as jest.Mock).mockReturnValue(
++      modelWithRelation({ relation: 'manyToOne', target: TARGET_UID })
++    );
++
++    const result = await service.transformDocument(
++      { title: 'Hi', category: { id: 1 /* no documentId */ } },
++      MODEL as any,
++      TARGET_LOCALE,
++      makeUserAbility()
++    );
++
++    expect(result.category).toEqual({ connect: [], disconnect: [] });
++  });
++
++  // -------------------------------------------------------------------------
++  // Non-localized target (resolveRelationsForLocaleBatch)
++  // -------------------------------------------------------------------------
++
++  describe('non-localized target', () => {
++    test('returns the relation as-is (no locale resolution needed)', async () => {
++      const { service, mockStrapi, dbFindMany } = makeService();
++
++      (mockStrapi.getModel as jest.Mock).mockImplementation((uid: string) => {
++        if (uid === MODEL) return modelWithRelation({ relation: 'manyToOne', target: TARGET_UID });
++        // non-localized target model
++        return { uid, options: {}, attributes: { name: { type: 'string' } } };
++      });
++
++      // i18n says target is NOT localized
++      (
++        mockStrapi.plugins.i18n.services['content-types'].isLocalizedContentType as jest.Mock
++      ).mockReturnValue(false);
++
++      dbFindMany.mockResolvedValue([{ documentId: 'cat-1', id: 10, name: 'Tech' }]);
++
++      const result = await service.transformDocument(
++        { title: 'Hi', category: { documentId: 'cat-1', id: 5 } },
++        MODEL as any,
++        TARGET_LOCALE,
++        makeUserAbility()
++      );
++
++      const connect = (result.category as any).connect;
++      expect(connect).toHaveLength(1);
++      // For a non-localized target the id from the source is preserved
++      expect(connect[0]).toMatchObject({ documentId: 'cat-1', id: 5 });
++    });
++
++    test('filters out relations without a numeric id', async () => {
++      const { service, mockStrapi } = makeService();
++
++      (mockStrapi.getModel as jest.Mock).mockImplementation((uid: string) => {
++        if (uid === MODEL) return modelWithRelation({ relation: 'manyToOne', target: TARGET_UID });
++        return { uid, options: {}, attributes: { name: { type: 'string' } } };
++      });
++
++      (
++        mockStrapi.plugins.i18n.services['content-types'].isLocalizedContentType as jest.Mock
++      ).mockReturnValue(false);
++
++      const result = await service.transformDocument(
++        // id is undefined — should be dropped
++        { title: 'Hi', category: { documentId: 'cat-1' } },
++        MODEL as any,
++        TARGET_LOCALE,
++        makeUserAbility()
++      );
++
++      expect((result.category as any).connect).toHaveLength(0);
++    });
++  });
++
++  // -------------------------------------------------------------------------
++  // Localized target (resolveRelationsForLocaleBatch + byDocumentId map)
++  // -------------------------------------------------------------------------
++
++  describe('localized target', () => {
++    const setupLocalized = (dbRows: object[]) => {
++      const { service, mockStrapi, dbFindMany } = makeService();
++
++      (mockStrapi.getModel as jest.Mock).mockImplementation((uid: string) => {
++        if (uid === MODEL) return modelWithRelation({ relation: 'manyToOne', target: TARGET_UID });
++        // localized target, no D&P
++        return { uid, options: {}, attributes: { name: { type: 'string' } } };
++      });
++
++      (
++        mockStrapi.plugins.i18n.services['content-types'].isLocalizedContentType as jest.Mock
++      ).mockReturnValue(true);
++
++      dbFindMany.mockResolvedValue(dbRows);
++
++      return { service, mockStrapi };
++    };
++
++    test('resolves relation to the matching target-locale entry', async () => {
++      const { service } = setupLocalized([
++        { documentId: 'cat-1', id: 20, locale: TARGET_LOCALE, publishedAt: null },
++      ]);
++
++      const result = await service.transformDocument(
++        { title: 'Hi', category: { documentId: 'cat-1', id: 5, locale: 'en' } },
++        MODEL as any,
++        TARGET_LOCALE,
++        makeUserAbility()
++      );
++
++      const connect = (result.category as any).connect;
++      expect(connect).toHaveLength(1);
++      expect(connect[0]).toMatchObject({ documentId: 'cat-1', id: 20, locale: TARGET_LOCALE });
++    });
++
++    test('returns empty connect when relation not found in target locale', async () => {
++      const { service } = setupLocalized([]); // no rows in target locale
++
++      const result = await service.transformDocument(
++        { title: 'Hi', category: { documentId: 'cat-1', id: 5, locale: 'en' } },
++        MODEL as any,
++        TARGET_LOCALE,
++        makeUserAbility()
++      );
++
++      expect((result.category as any).connect).toHaveLength(0);
++    });
++
++    test('prefers draft (null publishedAt) over published for the same documentId', async () => {
++      const { service, mockStrapi } = makeService();
++
++      (mockStrapi.getModel as jest.Mock).mockImplementation((uid: string) => {
++        if (uid === MODEL) return modelWithRelation({ relation: 'manyToOne', target: TARGET_UID });
++        return { uid, options: {}, attributes: { name: { type: 'string' } } };
++      });
++
++      (
++        mockStrapi.plugins.i18n.services['content-types'].isLocalizedContentType as jest.Mock
++      ).mockReturnValue(true);
++
++      // DB returns published first, then draft — draft should win regardless of order
++      (mockStrapi.db.query as jest.Mock).mockReturnValue({
++        findMany: jest.fn().mockResolvedValue([
++          { documentId: 'cat-1', id: 99, locale: TARGET_LOCALE, publishedAt: '2024-01-01' },
++          { documentId: 'cat-1', id: 100, locale: TARGET_LOCALE, publishedAt: null },
++        ]),
++      });
++
++      const result = await service.transformDocument(
++        { title: 'Hi', category: { documentId: 'cat-1', id: 5, locale: 'en' } },
++        MODEL as any,
++        TARGET_LOCALE,
++        makeUserAbility()
++      );
++
++      const connect = (result.category as any).connect;
++      expect(connect).toHaveLength(1);
++      expect(connect[0].id).toBe(100); // draft entry, not the published one
++    });
++
++    test('falls back to published when no draft exists for documentId', async () => {
++      const { service, mockStrapi } = makeService();
++
++      (mockStrapi.getModel as jest.Mock).mockImplementation((uid: string) => {
++        if (uid === MODEL) return modelWithRelation({ relation: 'manyToOne', target: TARGET_UID });
++        return { uid, options: {}, attributes: { name: { type: 'string' } } };
++      });
++
++      (
++        mockStrapi.plugins.i18n.services['content-types'].isLocalizedContentType as jest.Mock
++      ).mockReturnValue(true);
++
++      (mockStrapi.db.query as jest.Mock).mockReturnValue({
++        findMany: jest
++          .fn()
++          .mockResolvedValue([
++            { documentId: 'cat-1', id: 99, locale: TARGET_LOCALE, publishedAt: '2024-01-01' },
++          ]),
++      });
++
++      const result = await service.transformDocument(
++        { title: 'Hi', category: { documentId: 'cat-1', id: 5, locale: 'en' } },
++        MODEL as any,
++        TARGET_LOCALE,
++        makeUserAbility()
++      );
++
++      const connect = (result.category as any).connect;
++      expect(connect).toHaveLength(1);
++      expect(connect[0].id).toBe(99);
++    });
++  });
++
++  // -------------------------------------------------------------------------
++  // Status and label enrichment (addStatusToRelationsBatch)
++  // -------------------------------------------------------------------------
++
++  describe('status enrichment', () => {
++    test('does not add status when D&P is disabled on target model', async () => {
++      const { service, mockStrapi, dbFindMany } = makeService();
++
++      (mockStrapi.getModel as jest.Mock).mockImplementation((uid: string) => {
++        if (uid === MODEL) return modelWithRelation({ relation: 'manyToOne', target: TARGET_UID });
++        // no draftAndPublish option → hasDraftAndPublish returns false
++        return { uid, options: {}, attributes: { name: { type: 'string' } } };
++      });
++
++      (
++        mockStrapi.plugins.i18n.services['content-types'].isLocalizedContentType as jest.Mock
++      ).mockReturnValue(false);
++
++      dbFindMany.mockResolvedValue([{ documentId: 'cat-1', id: 10, name: 'Tech' }]);
++
++      const result = await service.transformDocument(
++        { category: { documentId: 'cat-1', id: 10 } },
++        MODEL as any,
++        TARGET_LOCALE,
++        makeUserAbility()
++      );
++
++      expect((result.category as any).connect[0]).not.toHaveProperty('status');
++    });
++
++    test('adds status via document-metadata.getStatus when D&P is enabled', async () => {
++      const { service, mockStrapi } = makeService();
++      const getStatus = jest.fn().mockReturnValue('published');
++
++      (mockStrapi.getModel as jest.Mock).mockImplementation((uid: string) => {
++        if (uid === MODEL) return modelWithRelation({ relation: 'manyToOne', target: TARGET_UID });
++        // D&P enabled
++        return {
++          uid,
++          options: { draftAndPublish: true },
++          attributes: { name: { type: 'string' } },
++        };
++      });
++
++      (
++        mockStrapi.plugins.i18n.services['content-types'].isLocalizedContentType as jest.Mock
++      ).mockReturnValue(false);
++
++      // Override document-metadata with our spy
++      (mockStrapi as any).plugins['content-manager'].services['document-metadata'].getStatus =
++        getStatus;
++
++      // First findMany = locale resolution (non-localized → not called)
++      // Second findMany = status entries, Third = label entries
++      let callCount = 0;
++      (mockStrapi.db.query as jest.Mock).mockReturnValue({
++        findMany: jest.fn().mockImplementation(() => {
++          callCount += 1;
++          if (callCount === 1) {
++            // status entries
++            return Promise.resolve([{ documentId: 'cat-1', id: 10, publishedAt: '2024-01-01' }]);
++          }
++          // label entries
++          return Promise.resolve([{ documentId: 'cat-1', id: 10, name: 'Tech' }]);
++        }),
++      });
++
++      const result = await service.transformDocument(
++        { category: { documentId: 'cat-1', id: 10 } },
++        MODEL as any,
++        TARGET_LOCALE,
++        makeUserAbility()
++      );
++
++      expect(getStatus).toHaveBeenCalled();
++      expect((result.category as any).connect[0]).toHaveProperty('status', 'published');
++    });
++
++    test('uses documentId:locale groupKey for localized target when computing status', async () => {
++      const { service, mockStrapi } = makeService();
++      const getStatus = jest.fn().mockReturnValue('draft');
++
++      (mockStrapi.getModel as jest.Mock).mockImplementation((uid: string) => {
++        if (uid === MODEL) return modelWithRelation({ relation: 'manyToOne', target: TARGET_UID });
++        return {
++          uid,
++          options: { draftAndPublish: true },
++          attributes: { name: { type: 'string' } },
++        };
++      });
++
++      // target IS localized
++      (
++        mockStrapi.plugins.i18n.services['content-types'].isLocalizedContentType as jest.Mock
++      ).mockReturnValue(true);
++
++      (mockStrapi as any).plugins['content-manager'].services['document-metadata'].getStatus =
++        getStatus;
++
++      let callCount = 0;
++      (mockStrapi.db.query as jest.Mock).mockReturnValue({
++        findMany: jest.fn().mockImplementation(() => {
++          callCount += 1;
++          if (callCount === 1) {
++            // locale resolution
++            return Promise.resolve([
++              { documentId: 'cat-1', id: 20, locale: TARGET_LOCALE, publishedAt: null },
++            ]);
++          }
++          if (callCount === 2) {
++            // status entries
++            return Promise.resolve([
++              { documentId: 'cat-1', id: 20, locale: TARGET_LOCALE, publishedAt: null },
++            ]);
++          }
++          // label entries
++          return Promise.resolve([
++            { documentId: 'cat-1', id: 20, locale: TARGET_LOCALE, name: 'Tech' },
++          ]);
++        }),
++      });
++
++      const result = await service.transformDocument(
++        { category: { documentId: 'cat-1', id: 5, locale: 'en' } },
++        MODEL as any,
++        TARGET_LOCALE,
++        makeUserAbility()
++      );
++
++      expect(getStatus).toHaveBeenCalled();
++      expect((result.category as any).connect[0]).toHaveProperty('status', 'draft');
++    });
++  });
++
++  // -------------------------------------------------------------------------
++  // Label enrichment
++  // -------------------------------------------------------------------------
++
++  describe('label enrichment', () => {
++    test('uses mainField value as label', async () => {
++      const { service, mockStrapi, dbFindMany } = makeService();
++
++      (mockStrapi.getModel as jest.Mock).mockImplementation((uid: string) => {
++        if (uid === MODEL) return modelWithRelation({ relation: 'manyToOne', target: TARGET_UID });
++        return { uid, options: {}, attributes: { name: { type: 'string' } } };
++      });
++
++      (
++        mockStrapi.plugins.i18n.services['content-types'].isLocalizedContentType as jest.Mock
++      ).mockReturnValue(false);
++
++      dbFindMany.mockResolvedValue([{ documentId: 'cat-1', id: 10, name: 'Technology' }]);
++
++      const result = await service.transformDocument(
++        { category: { documentId: 'cat-1', id: 10 } },
++        MODEL as any,
++        TARGET_LOCALE,
++        makeUserAbility()
++      );
++
++      expect((result.category as any).connect[0].label).toBe('Technology');
++    });
++
++    test('falls back to documentId as label when mainField is not a string', async () => {
++      const { service, mockStrapi, dbFindMany } = makeService();
++
++      (mockStrapi.getModel as jest.Mock).mockImplementation((uid: string) => {
++        if (uid === MODEL) return modelWithRelation({ relation: 'manyToOne', target: TARGET_UID });
++        return { uid, options: {}, attributes: { name: { type: 'string' } } };
++      });
++
++      (
++        mockStrapi.plugins.i18n.services['content-types'].isLocalizedContentType as jest.Mock
++      ).mockReturnValue(false);
++
++      // name is null — should fall back to documentId
++      dbFindMany.mockResolvedValue([{ documentId: 'cat-1', id: 10, name: null }]);
++
++      const result = await service.transformDocument(
++        { category: { documentId: 'cat-1', id: 10 } },
++        MODEL as any,
++        TARGET_LOCALE,
++        makeUserAbility()
++      );
++
++      expect((result.category as any).connect[0].label).toBe('cat-1');
++    });
++  });
++});
+diff --git a/packages/plugins/i18n/server/src/services/fill-from-locale.ts b/packages/plugins/i18n/server/src/services/fill-from-locale.ts
+new file mode 100644
+index 00000000..c2d8b955
+--- /dev/null
++++ b/packages/plugins/i18n/server/src/services/fill-from-locale.ts
+@@ -0,0 +1,519 @@
++import { isArray } from 'lodash/fp';
++import { contentTypes } from '@strapi/utils';
++import type { UID, Schema, Core } from '@strapi/types';
++
++const READ_ACTION = 'plugin::content-manager.explorer.read';
++
++/**
++ * Returns the main display field for a model (e.g. title, name).
++ * Uses content-manager configuration when available, falls back to first string attribute or 'id'.
++ */
++const getMainField = async (targetUid: UID.Schema): Promise<string> => {
++  const contentManagerContentTypeService = strapi
++    .plugin('content-manager')
++    .service('content-types');
++  const configuration = await contentManagerContentTypeService.findConfiguration({
++    uid: targetUid,
++  });
++  return configuration.settings.mainField;
++};
++
++/**
++ * Returns the display label for a relation.
++ * Matches the logic of the getRelationLabel function in the content-manager plugin.
++ */
++const getRelationLabel = (relation: Record<string, unknown>, mainField: string): string => {
++  const label = relation[mainField];
++  if (typeof label === 'string') return label;
++  return String(relation.documentId ?? '');
++};
++
++const FIELDS_TO_IGNORE = new Set([
++  'createdAt',
++  'createdBy',
++  'updatedAt',
++  'updatedBy',
++  'id',
++  'documentId',
++  'publishedAt',
++  'strapi_stage',
++  'strapi_assignee',
++  'locale',
++  'status',
++  'localizations',
++]);
++
++const STATUS_FIELDS = new Set(['id', 'documentId', 'locale', 'updatedAt', 'publishedAt']);
++
++/**
++ * Normalizes a value to an array: arrays pass through, single values become [value], null/undefined become [].
++ */
++const normalizeToArray = (value: unknown): unknown[] => {
++  if (isArray(value)) return value;
++  if (value) return [value];
++  return [];
++};
++
++/**
++ * Type guard: returns true if the value is a valid relation object with documentId.
++ */
++const isValidRelation = (
++  rel: unknown
++): rel is { documentId: string; id?: number; locale?: string } =>
++  typeof rel === 'object' && rel !== null && 'documentId' in rel && !!(rel as any).documentId;
++
++/**
++ * Maps relations from the source locale to target locale (batched for better performance).
++ */
++const resolveRelationsForLocaleBatch = async (
++  relations: Array<{ documentId: string; id?: number; locale?: string }>,
++  targetUid: UID.Schema,
++  targetLocale: string
++): Promise<Array<{ documentId: string; id: number | string; locale?: string } | null>> => {
++  const i18nContentTypesService = strapi.plugin('i18n')?.service('content-types');
++  const isTargetLocalized = i18nContentTypesService?.isLocalizedContentType(
++    strapi.getModel(targetUid)
++  );
++
++  if (!isTargetLocalized) {
++    return relations.map((rel) => {
++      if (rel.id === undefined) return null;
++      return { documentId: rel.documentId, id: rel.id };
++    });
++  }
++
++  const documentIds = [...new Set(relations.map((r) => r.documentId))];
++  const targetEntriesQuery = {
++    where: { documentId: { $in: documentIds }, locale: targetLocale },
++    select: [...STATUS_FIELDS],
++  };
++  const targetEntries = await strapi.db.query(targetUid).findMany(targetEntriesQuery);
++  const byDocumentId = new Map<string, (typeof targetEntries)[0]>();
++  for (const e of targetEntries) {
++    const existing = byDocumentId.get(e.documentId);
++    if (!existing || (e.publishedAt === null && existing.publishedAt !== null)) {
++      byDocumentId.set(e.documentId, e);
++    }
++  }
++
++  return relations.map((rel) => {
++    const entry = byDocumentId.get(rel.documentId);
++    if (!entry) return null;
++    return {
++      documentId: entry.documentId,
++      id: entry.id,
++      locale: entry.locale,
++    };
++  });
++};
++
++/**
++ * Builds the where clause for relation queries: documentIds + locales (when target model is localized).
++ */
++const buildWhereForRelations = (
++  relations: Array<{ documentId: string; locale?: string }>,
++  documentIds: string[],
++  targetUid: UID.Schema
++): { documentId: { $in: string[] }; locale?: { $in: string[] } } => {
++  const where: { documentId: { $in: string[] }; locale?: { $in: string[] } } = {
++    documentId: { $in: documentIds },
++  };
++  const i18nContentTypesService = strapi.plugin('i18n')?.service('content-types');
++  const isTargetLocalized = i18nContentTypesService?.isLocalizedContentType(
++    strapi.getModel(targetUid)
++  );
++  if (isTargetLocalized) {
++    const locales = [...new Set(relations.map((r) => r.locale).filter(Boolean))] as string[];
++    if (locales.length > 0) {
++      where.locale = { $in: locales };
++    }
++  }
++  return where;
++};
++
++// ---------------------------------------------------------------------------
++// Batch pre-resolution
++// ---------------------------------------------------------------------------
++
++type ValidRelation = { documentId: string; id?: number; locale?: string };
++type ResolvedRelation = { documentId: string; id: number | string; locale?: string };
++type RelationsByUid = Map<string, ValidRelation[]>;
++
++interface UidResolutionData {
++  blocked: boolean;
++  mainField: string;
++  /** sourceDocumentId → resolved entry in targetLocale (null if not found) */
++  bySourceDocumentId: Map<string, ResolvedRelation | null>;
++  /** resolvedEntry.id → status string */
++  statusById: Map<number | string, string | undefined>;
++  /** resolvedEntry.id → mainField value */
++  labelById: Map<number | string, unknown>;
++}
++
++/**
++ * Walk the full document tree and collect all valid relation objects grouped by targetUid.
++ */
++const collectRelationsByUid = (
++  data: Record<string, unknown>,
++  schema: Schema.ContentType | Schema.Component,
++  components: Record<string, Schema.Component>
++): RelationsByUid => {
++  const result: RelationsByUid = new Map();
++
++  const addRels = (uid: string, rels: ValidRelation[]) => {
++    const existing = result.get(uid) ?? [];
++    result.set(uid, existing.concat(rels));
++  };
++
++  const collect = (d: Record<string, unknown>, s: Schema.ContentType | Schema.Component) => {
++    if (!d || typeof d !== 'object') return;
++    for (const [key, value] of Object.entries(d)) {
++      const attribute = s?.attributes?.[key];
++      if (!attribute) continue;
++
++      if (attribute.type === 'relation') {
++        const attr = attribute as Schema.Attribute.Relation & {
++          relation?: string;
++          target?: string;
++        };
++        if (attr.relation?.toLowerCase().includes('morph') || !attr.target) continue;
++        const validRels = normalizeToArray(value).filter(isValidRelation);
++        if (validRels.length > 0) addRels(attr.target, validRels);
++      } else if (attribute.type === 'component') {
++        const compSchema = (components[attribute.component] ?? {
++          attributes: {},
++        }) as Schema.Component;
++        if (attribute.repeatable && isArray(value)) {
++          for (const item of value as Record<string, unknown>[]) {
++            collect(item, compSchema);
++          }
++        } else if (value) {
++          collect(value as Record<string, unknown>, compSchema);
++        }
++      } else if (attribute.type === 'dynamiczone' && isArray(value)) {
++        for (const item of value as Record<string, unknown>[]) {
++          const compUid = (item as any)?.__component as string;
++          const compSchema = (components[compUid] ?? { attributes: {} }) as Schema.Component;
++          collect(item as Record<string, unknown>, compSchema);
++        }
++      }
++    }
++  };
++
++  collect(data, schema);
++  return result;
++};
++
++/**
++ * Resolves all relation targets for the requested locale in batches (per related content-type UID):
++ * locale mapping, permissions, status, and labels.
++ */
++const resolveAllRelationsBatched = async (
++  relationsByUid: RelationsByUid,
++  targetLocale: string,
++  userAbility: any
++): Promise<Map<string, UidResolutionData>> => {
++  const result = new Map<string, UidResolutionData>();
++  await Promise.all(
++    [...relationsByUid.entries()].map(async ([targetUid, allRels]) => {
++      const empty: UidResolutionData = {
++        blocked: !userAbility.can(READ_ACTION, targetUid),
++        mainField: '',
++        bySourceDocumentId: new Map(),
++        statusById: new Map(),
++        labelById: new Map(),
++      };
++
++      if (empty.blocked) {
++        result.set(targetUid, empty);
++        return;
++      }
++
++      const mainField = await getMainField(targetUid as UID.Schema);
++      const validRels = allRels.filter(isValidRelation);
++
++      if (validRels.length === 0) {
++        result.set(targetUid, { ...empty, mainField });
++        return;
++      }
++
++      // Deduplicate by documentId before querying
++      const uniqueRels = [...new Map(validRels.map((r) => [r.documentId, r])).values()];
++      const resolvedList = await resolveRelationsForLocaleBatch(
++        uniqueRels,
++        targetUid as UID.Schema,
++        targetLocale
++      );
++
++      const bySourceDocumentId = new Map<string, ResolvedRelation | null>();
++      for (let i = 0; i < uniqueRels.length; i += 1) {
++        bySourceDocumentId.set(uniqueRels[i].documentId, resolvedList[i]);
++      }
++
++      const resolvedEntries = resolvedList.filter((r): r is ResolvedRelation => r !== null);
++
++      if (resolvedEntries.length === 0) {
++        result.set(targetUid, {
++          blocked: false,
++          mainField,
++          bySourceDocumentId,
++          statusById: new Map(),
++          labelById: new Map(),
++        });
++        return;
++      }
++
++      const documentIds = [...new Set(resolvedEntries.map((r) => r.documentId))];
++      const where = buildWhereForRelations(resolvedEntries, documentIds, targetUid as UID.Schema);
++
++      const [allStatusEntries, labelEntries] = await Promise.all([
++        contentTypes.hasDraftAndPublish(strapi.getModel(targetUid as UID.Schema))
++          ? strapi.db.query(targetUid).findMany({ where, select: [...STATUS_FIELDS] })
++          : Promise.resolve([]),
++        strapi.db.query(targetUid).findMany({
++          where,
++          select: ['documentId', 'id', 'locale', mainField],
++        }),
++      ]);
++
++      // Build status map
++      const statusById = new Map<number | string, string | undefined>();
++      if (allStatusEntries.length > 0) {
++        const documentMetadata = strapi.plugin('content-manager')?.service('document-metadata');
++        if (documentMetadata) {
++          const model = strapi.getModel(targetUid as UID.Schema);
++          const isLocalized = strapi
++            .plugin('i18n')
++            ?.service('content-types')
++            ?.isLocalizedContentType(model);
++          const groupKey = (e: { documentId: string; locale?: string }) =>
++            isLocalized && e.locale ? `${e.documentId}:${e.locale}` : e.documentId;
++
++          const byGroup = new Map<string, typeof allStatusEntries>();
++          for (const e of allStatusEntries) {
++            const key = groupKey(e);
++            const list = byGroup.get(key) ?? [];
++            list.push(e);
++            byGroup.set(key, list);
++          }
++
++          for (const entry of resolvedEntries) {
++            const key = groupKey(entry);
++            const entries = byGroup.get(key) ?? [];
++            if (!entries.length) continue;
++            const version = entries.find((e) => e.id === entry.id) ?? entries[0];
++            const otherVersions = entries.filter((e) => e.id !== version.id);
++            statusById.set(entry.id, documentMetadata.getStatus(version, otherVersions));
++          }
++        }
++      }
++
++      // Build label map
++      const labelById = new Map<number | string, unknown>();
++      for (const entry of labelEntries) {
++        labelById.set(entry.id, entry[mainField]);
++      }
++
++      result.set(targetUid, {
++        blocked: false,
++        mainField,
++        bySourceDocumentId,
++        statusById,
++        labelById,
++      });
++    })
++  );
++
++  return result;
++};
++
++/**
++ * Build the { connect, disconnect } for a single relation attribute using pre-fetched data.
++ */
++const buildConnectFromPreResolved = (
++  value: unknown,
++  attribute: Schema.Attribute.Relation,
++  preResolved: Map<string, UidResolutionData>
++): { connect: unknown[]; disconnect: unknown[] } => {
++  const attr = attribute as Schema.Attribute.Relation & { relation?: string; target?: string };
++  if (attr.relation?.toLowerCase().includes('morph') || !attr.target) {
++    return { connect: [], disconnect: [] };
++  }
++
++  const uidData = preResolved.get(attr.target);
++  if (!uidData || uidData.blocked) {
++    return { connect: [], disconnect: [] };
++  }
++
++  const validRels = normalizeToArray(value).filter(isValidRelation);
++  if (validRels.length === 0) {
++    return { connect: [], disconnect: [] };
++  }
++
++  const connect = validRels
++    .map((rel, index) => {
++      const resolved = uidData.bySourceDocumentId.get(rel.documentId);
++      if (!resolved) return null;
++
++      const status = uidData.statusById.get(resolved.id);
++      const mainFieldValue = uidData.labelById.get(resolved.id);
++      const relationWithMainField: Record<string, unknown> = {
++        ...resolved,
++        [uidData.mainField]: mainFieldValue,
++      };
++      if (status !== undefined) {
++        relationWithMainField.status = status;
++      }
++
++      return {
++        ...relationWithMainField,
++        __temp_key__: `a${index}`,
++        label: getRelationLabel(relationWithMainField, uidData.mainField),
++      };
++    })
++    .filter((r): r is NonNullable<typeof r> => r !== null);
++
++  return { connect, disconnect: [] };
++};
++
++/**
++ * Recursively process document data: remove internal fields and resolve relations using
++ * pre-fetched resolution data (no additional DB calls).
++ */
++const processDocumentData = async (
++  data: Record<string, unknown>,
++  schema: Schema.ContentType | Schema.Component,
++  components: Record<string, Schema.Component>,
++  preResolved: Map<string, UidResolutionData>
++): Promise<Record<string, unknown>> => {
++  if (!data) {
++    return {};
++  }
++
++  const result: Record<string, unknown> = {};
++
++  for (const [key, value] of Object.entries(data)) {
++    if (FIELDS_TO_IGNORE.has(key)) {
++      continue;
++    }
++
++    const attribute = schema?.attributes?.[key];
++    if (!attribute) {
++      result[key] = value;
++      continue;
++    }
++
++    if (attribute.type === 'password') {
++      continue;
++    }
++
++    if (attribute.type === 'relation') {
++      result[key] = buildConnectFromPreResolved(
++        value,
++        attribute as Schema.Attribute.Relation,
++        preResolved
++      );
++      continue;
++    }
++
++    if (attribute.type === 'component') {
++      const compSchema = (components[attribute.component] || {
++        attributes: {},
++      }) as Schema.Component;
++      if (attribute.repeatable && isArray(value)) {
++        result[key] = await Promise.all(
++          value.map(async (item: Record<string, unknown>, index: number) => {
++            const processed = await processDocumentData(item, compSchema, components, preResolved);
++            return { ...processed, __temp_key__: index + 1 };
++          })
++        );
++      } else if (value) {
++        const processed = await processDocumentData(
++          value as Record<string, unknown>,
++          compSchema,
++          components,
++          preResolved
++        );
++        result[key] = processed;
++      } else {
++        result[key] = value;
++      }
++      continue;
++    }
++
++    if (attribute.type === 'dynamiczone' && isArray(value)) {
++      result[key] = await Promise.all(
++        value.map(async (item: Record<string, unknown>, index: number) => {
++          const compSchema = (components[item?.__component as string] || {
++            attributes: {},
++          }) as Schema.Component;
++          const processed = await processDocumentData(item, compSchema, components, preResolved);
++          return { ...processed, __temp_key__: index + 1 };
++        })
++      );
++      continue;
++    }
++
++    result[key] = value;
++  }
++
++  return result;
++};
++
++export const createFillFromLocaleService = ({ strapi }: { strapi: Core.Strapi }) => {
++  return {
++    /**
++     * Fetch the raw populated document for the given locale without any transformation.
++     * The caller is responsible for sanitizing the output before passing it to transformDocument.
++     */
++    async fetchRawDocument(model: UID.ContentType, sourceLocale: string, documentId?: string) {
++      const populateBuilderService = strapi
++        .plugin('content-manager')
++        .service('populate-builder') as (uid: UID.ContentType) => {
++        populateDeep: (level: number) => { build: () => Promise<unknown> };
++      };
++      const modelDef = strapi.getModel(model);
++
++      if (!modelDef) {
++        throw new Error(`Model ${model} not found`);
++      }
++
++      // Build populate WITHOUT countRelations so we get full relation objects
++      const populate = await populateBuilderService(model).populateDeep(Infinity).build();
++
++      const docs = strapi.documents(model);
++      const baseParams = {
++        locale: sourceLocale,
++        populate: populate as never,
++      };
++
++      return documentId
++        ? docs.findOne({ ...baseParams, documentId })
++        : docs.findFirst({ ...baseParams });
++    },
++
++    /**
++     * Transform a (sanitized) document: strip internal fields, resolve relations to the target
++     * locale, and skip relations to content types the user cannot read.
++     */
++    async transformDocument(
++      document: Record<string, unknown>,
++      model: UID.ContentType,
++      targetLocale: string,
++      userAbility: any
++    ) {
++      const schema = strapi.getModel(model) as Schema.ContentType;
++      const getComponentSchema = (uid: string) =>
++        (strapi.getModel(uid as UID.Schema) ?? { attributes: {} }) as Schema.Component;
++      const components = new Proxy({} as Record<string, Schema.Component>, {
++        get(_, uid: string) {
++          return getComponentSchema(uid);
++        },
++      });
++
++      const relsByUid = collectRelationsByUid(document, schema, components);
++      const preResolved = await resolveAllRelationsBatched(relsByUid, targetLocale, userAbility);
++      return processDocumentData(document, schema, components, preResolved);
++    },
++  };
++};
+diff --git a/packages/plugins/i18n/server/src/services/index.ts b/packages/plugins/i18n/server/src/services/index.ts
+index 5d21213d..6ffcb995 100644
+--- a/packages/plugins/i18n/server/src/services/index.ts
++++ b/packages/plugins/i18n/server/src/services/index.ts
+@@ -8,6 +8,7 @@ import sanitize from './sanitize';
+ import { createSettingsService } from './settings';
+ import { createAILocalizationsService } from './ai-localizations';
+ import { createAILocalizationJobsService } from './ai-localization-jobs';
++import { createFillFromLocaleService } from './fill-from-locale';
+ 
+ export default {
+   permissions,
+@@ -20,4 +21,5 @@ export default {
+   'ai-localizations': createAILocalizationsService,
+   'ai-localization-jobs': createAILocalizationJobsService,
+   settings: createSettingsService,
++  'fill-from-locale': createFillFromLocaleService,
+ };
+diff --git a/packages/plugins/i18n/server/src/utils/index.ts b/packages/plugins/i18n/server/src/utils/index.ts
+index a7f37de8..785f2db2 100644
+--- a/packages/plugins/i18n/server/src/utils/index.ts
++++ b/packages/plugins/i18n/server/src/utils/index.ts
+@@ -8,6 +8,7 @@ import type { SanitizeService } from '../services/sanitize';
+ import type { SettingsService } from '../services/settings';
+ import type { createAILocalizationsService } from '../services/ai-localizations';
+ import type { createAILocalizationJobsService } from '../services/ai-localization-jobs';
++import type { createFillFromLocaleService } from '../services/fill-from-locale';
+ 
+ type S = {
+   permissions: PermissionsService;
+@@ -20,6 +21,7 @@ type S = {
+   sanitize: SanitizeService;
+   ['ai-localizations']: ReturnType<typeof createAILocalizationsService>;
+   'ai-localization-jobs': ReturnType<typeof createAILocalizationJobsService>;
++  'fill-from-locale': ReturnType<typeof createFillFromLocaleService>;
+ };
+ 
+ const getCoreStore = () => {
+diff --git a/packages/plugins/i18n/server/src/validation/content-types.ts b/packages/plugins/i18n/server/src/validation/content-types.ts
+index 3da32747..53c70d15 100644
+--- a/packages/plugins/i18n/server/src/validation/content-types.ts
++++ b/packages/plugins/i18n/server/src/validation/content-types.ts
+@@ -20,4 +20,21 @@ const validateGetNonLocalizedAttributesInput = validateYupSchema(
+   validateGetNonLocalizedAttributesSchema
+ );
+ 
+-export { validateGetNonLocalizedAttributesInput };
++const validateFillFromLocaleInputSchema = yup
++  .object()
++  .shape({
++    documentId: yup.string().when('collectionType', {
++      is: 'single-types',
++      then: (schema) => schema.nullable(),
++      otherwise: (schema) => schema.required(),
++    }),
++    sourceLocale: yup.string().required(),
++    targetLocale: yup.string().required(),
++    collectionType: yup.string().oneOf(['collection-types', 'single-types']).required(),
++  })
++  .noUnknown()
++  .required();
++
++const validateFillFromLocaleInput = validateYupSchema(validateFillFromLocaleInputSchema);
++
++export { validateGetNonLocalizedAttributesInput, validateFillFromLocaleInput };
+diff --git a/packages/plugins/i18n/shared/contracts/content-manager.ts b/packages/plugins/i18n/shared/contracts/content-manager.ts
+index 147ad467..1bf4ef85 100644
+--- a/packages/plugins/i18n/shared/contracts/content-manager.ts
++++ b/packages/plugins/i18n/shared/contracts/content-manager.ts
+@@ -24,6 +24,37 @@ export declare namespace GetNonLocalizedFields {
+   }
+ }
+ 
++/**
++ * GET /i18n/content-manager/get-fill-from-locale - Get data from source locale to fill target locale
++ */
++export interface FillFromLocaleParams {
++  model: string;
++  documentId?: string;
++  sourceLocale: string;
++  targetLocale: string;
++  collectionType: 'collection-types' | 'single-types';
++}
++
++export declare namespace FillFromLocale {
++  export interface Request {
++    body: {};
++    query: Params;
++  }
++
++  export interface Params {
++    model: string;
++    documentId?: string;
++    sourceLocale: string;
++    targetLocale: string;
++    collectionType: 'collection-types' | 'single-types';
++  }
++
++  export interface Response {
++    data: Record<string, unknown>;
++    error?: errors.ApplicationError;
++  }
++}
++
+ /**
+  * GET content-manager/collection-types/:model/actions/countManyEntriesDraftRelations
+  */
+diff --git a/tests/api/plugins/i18n/content-manager/fill-from-locale.test.api.js b/tests/api/plugins/i18n/content-manager/fill-from-locale.test.api.js
+new file mode 100644
+index 00000000..7bbfc3da
+--- /dev/null
++++ b/tests/api/plugins/i18n/content-manager/fill-from-locale.test.api.js
+@@ -0,0 +1,189 @@
++'use strict';
++
++const { createStrapiInstance } = require('api-tests/strapi');
++const { createAuthRequest } = require('api-tests/request');
++const { createTestBuilder } = require('api-tests/builder');
++
++let strapi;
++let rq;
++
++const articleModel = {
++  kind: 'collectionType',
++  collectionName: 'articles',
++  displayName: 'Article',
++  singularName: 'article',
++  pluralName: 'articles',
++  description: '',
++  name: 'Article',
++  draftAndPublish: true,
++  pluginOptions: {
++    i18n: {
++      localized: true,
++    },
++  },
++  attributes: {
++    title: {
++      type: 'string',
++      pluginOptions: {
++        i18n: {
++          localized: true,
++        },
++      },
++    },
++    content: {
++      type: 'richtext',
++      pluginOptions: {
++        i18n: {
++          localized: true,
++        },
++      },
++    },
++  },
++};
++
++describe('i18n - fill-from-locale', () => {
++  const builder = createTestBuilder();
++
++  beforeAll(async () => {
++    await builder
++      .addContentTypes([articleModel])
++      .addFixtures('plugin::i18n.locale', [
++        { name: 'French', code: 'fr' },
++        { name: 'Italian', code: 'it' },
++      ])
++      .build();
++
++    strapi = await createStrapiInstance();
++    rq = await createAuthRequest({ strapi });
++  });
++
++  afterAll(async () => {
++    await strapi.db.query('plugin::i18n.locale').deleteMany({ code: { $ne: 'en' } });
++    await strapi.destroy();
++    await builder.cleanup();
++  });
++
++  describe('GET /i18n/content-manager/get-fill-from-locale/api::article.article', () => {
++    beforeEach(async () => {
++      await strapi.db.query('api::article.article').deleteMany({});
++    });
++
++    test('returns 400 when required fields are missing', async () => {
++      const res = await rq({
++        method: 'GET',
++        url: '/i18n/content-manager/get-fill-from-locale/api::article.article',
++        qs: {
++          documentId: 'doc-123',
++          sourceLocale: 'en',
++          targetLocale: 'fr',
++          // missing collectionType
++        },
++      });
++
++      expect(res.statusCode).toBe(400);
++    });
++
++    test('returns 400 when collectionType is invalid', async () => {
++      const res = await rq({
++        method: 'GET',
++        url: '/i18n/content-manager/get-fill-from-locale/api::article.article',
++        qs: {
++          documentId: 'doc-123',
++          sourceLocale: 'en',
++          targetLocale: 'fr',
++          collectionType: 'invalid-type',
++        },
++      });
++
++      expect(res.statusCode).toBe(400);
++    });
++
++    test('returns 404 when document does not exist', async () => {
++      const res = await rq({
++        method: 'GET',
++        url: '/i18n/content-manager/get-fill-from-locale/api::article.article',
++        qs: {
++          documentId: 'non-existent-doc-id',
++          sourceLocale: 'en',
++          targetLocale: 'fr',
++          collectionType: 'collection-types',
++        },
++      });
++
++      expect(res.statusCode).toBe(404);
++    });
++
++    test('returns data from published version when filling from locale', async () => {
++      const createRes = await rq({
++        method: 'POST',
++        url: '/content-manager/collection-types/api::article.article',
++        body: {
++          title: 'English Title',
++          content: 'English content',
++          locale: 'en',
++        },
++      });
++
++      expect(createRes.statusCode).toBe(201);
++      const documentId = createRes.body.data.documentId;
++
++      await rq({
++        method: 'POST',
++        url: `/content-manager/collection-types/api::article.article/${documentId}/actions/publish`,
++        body: { locale: 'en' },
++      });
++
++      const res = await rq({
++        method: 'GET',
++        url: '/i18n/content-manager/get-fill-from-locale/api::article.article',
++        qs: {
++          documentId,
++          sourceLocale: 'en',
++          targetLocale: 'fr',
++          collectionType: 'collection-types',
++        },
++      });
++
++      expect(res.statusCode).toBe(200);
++      expect(res.body).toHaveProperty('data');
++      expect(res.body.data).toMatchObject({
++        title: 'English Title',
++        content: 'English content',
++      });
++      expect(res.body.data).not.toHaveProperty('documentId');
++      expect(res.body.data).not.toHaveProperty('locale');
++    });
++
++    test('returns data from draft when document has no published version', async () => {
++      const createRes = await rq({
++        method: 'POST',
++        url: '/content-manager/collection-types/api::article.article',
++        body: {
++          title: 'Draft Only Title',
++          content: 'Draft only content',
++          locale: 'en',
++        },
++      });
++
++      expect(createRes.statusCode).toBe(201);
++      const documentId = createRes.body.data.documentId;
++
++      const res = await rq({
++        method: 'GET',
++        url: '/i18n/content-manager/get-fill-from-locale/api::article.article',
++        qs: {
++          documentId,
++          sourceLocale: 'en',
++          targetLocale: 'fr',
++          collectionType: 'collection-types',
++        },
++      });
++
++      expect(res.statusCode).toBe(200);
++      expect(res.body.data).toMatchObject({
++        title: 'Draft Only Title',
++        content: 'Draft only content',
++      });
++    });
++  });
++});
+diff --git a/tests/cli/tests/strapi/strapi/__snapshots__/routes-list.test.cli.js.snap b/tests/cli/tests/strapi/strapi/__snapshots__/routes-list.test.cli.js.snap
+index 98acb5b2..3efbc462 100644
+--- a/tests/cli/tests/strapi/strapi/__snapshots__/routes-list.test.cli.js.snap
++++ b/tests/cli/tests/strapi/strapi/__snapshots__/routes-list.test.cli.js.snap
+@@ -256,6 +256,7 @@ exports[`routes:list should output list of routes 1`] = `
+ │ PUT                │ /i18n/locales/:id                                                               │
+ │ DELETE             │ /i18n/locales/:id                                                               │
+ │ POST               │ /i18n/content-manager/actions/get-non-localized-fields                          │
++│ HEAD|GET           │ /i18n/content-manager/get-fill-from-locale/:model                               │
+ │ HEAD|GET           │ /i18n/settings                                                                  │
+ │ PUT                │ /i18n/settings                                                                  │
+ │ HEAD|GET           │ /i18n/ai-localization-jobs/collection-types/:contentType/:documentId            │
+diff --git a/tests/cli/tests/strapi/strapi/__snapshots__/services-list.test.cli.js.snap b/tests/cli/tests/strapi/strapi/__snapshots__/services-list.test.cli.js.snap
+index 15b1802c..7eb4376c 100644
+--- a/tests/cli/tests/strapi/strapi/__snapshots__/services-list.test.cli.js.snap
++++ b/tests/cli/tests/strapi/strapi/__snapshots__/services-list.test.cli.js.snap
+@@ -44,6 +44,7 @@ exports[`services:list should output list of services 1`] = `
+ │ plugin::i18n.ai-localizations                        │
+ │ plugin::i18n.ai-localization-jobs                    │
+ │ plugin::i18n.settings                                │
++│ plugin::i18n.fill-from-locale                        │
+ │ plugin::documentation.documentation                  │
+ │ plugin::documentation.override                       │
+ │ plugin::graphql.builders                             │
+diff --git a/tests/e2e/tests/i18n/fill-from-locale.spec.ts b/tests/e2e/tests/i18n/fill-from-locale.spec.ts
+new file mode 100644
+index 00000000..5e8eae6c
+--- /dev/null
++++ b/tests/e2e/tests/i18n/fill-from-locale.spec.ts
+@@ -0,0 +1,135 @@
++import { test, expect } from '@playwright/test';
++
++import { resetDatabaseAndImportDataFromPath } from '../../../utils/dts-import';
++import { login } from '../../../utils/login';
++import { clickAndWait, findAndClose, navToHeader } from '../../../utils/shared';
++
++test.describe('i18n - Fill from another locale', () => {
++  test.beforeEach(async ({ page }) => {
++    await resetDatabaseAndImportDataFromPath('with-admin');
++    await page.goto('/admin');
++    await login({ page });
++  });
++
++  test('As a user I want to retrieve localized relations with the fill from another locale feature', async ({
++    page,
++  }) => {
++    /**
++     * First case: the relation item wasn't created in the requested locale
++     */
++    await navToHeader(page, ['Content Manager', 'Shop'], 'UK Shop');
++
++    /**
++     * Select a product from the product carousel
++     */
++    await page.getByRole('button', { name: 'Product carousel - 23/24 kits' }).click();
++    await page.getByRole('combobox', { name: 'products' }).click();
++    await page.getByText('Nike Mens 23/24 Away Stadium').click();
++
++    /**
++     * Publish the document
++     */
++    await page.getByRole('button', { name: 'Publish' }).click();
++    await findAndClose(page, 'Published document');
++
++    /**
++     * Switch to Spanish locale to create a new locale entry (empty form)
++     */
++    await page.getByRole('combobox', { name: 'Locales' }).click();
++    await page.getByRole('option', { name: 'Spanish (es)' }).click();
++
++    /**
++     * Now we should be on a new document in the es locale with empty form
++     */
++    expect(new URL(page.url()).searchParams.get('plugins[i18n][locale]')).toEqual('es');
++    await expect(page.getByRole('heading', { name: 'Shop' })).toBeVisible();
++    await expect(page.locator('input[name="title"]')).toHaveValue('');
++
++    /**
++     * Open "More document actions" and click "Fill in from another locale"
++     */
++    await page.getByRole('button', { name: 'Fill in from another locale' }).click();
++    await page.getByRole('combobox', { name: 'Locale' }).click();
++    await page.locator('span').filter({ hasText: 'English (en)' }).first().click();
++    await page.getByRole('button', { name: 'Yes, fill in' }).click();
++
++    /**
++     * Verify the form is now filled with the English content but the relation should not be there because it doesn't exist in Spanish locale
++     */
++    await expect(page.getByRole('textbox', { name: 'title' }).first()).toHaveValue('UK Shop');
++    // Check that the product relation is in the page
++    await expect(
++      page.getByRole('button', { name: 'Nike Mens 23/24 Away Stadium' })
++    ).not.toBeVisible();
++
++    /**
++     * Second case: the relation is retrieved when it exists in the requested locale
++     */
++
++    /**
++     * Create Spanish locale entry for a product
++     */
++    await page.getByRole('link', { name: 'Products' }).click();
++    await page.getByRole('button', { name: 'Confirm' }).click();
++    await page.getByRole('combobox', { name: 'Select a locale' }).click();
++    await page.getByRole('option', { name: 'English (en)' }).click();
++    await clickAndWait(page, page.getByRole('gridcell', { name: 'Nike Mens 23/24 Away Stadium' }));
++    await page.getByRole('combobox', { name: 'Locales' }).click();
++    await page.getByText('Spanish (es)').click();
++    await page.getByRole('button', { name: 'Fill in from another locale' }).click();
++    await page.getByRole('combobox', { name: 'Locale' }).click();
++    await page.locator('span').filter({ hasText: 'English (en)' }).first().click();
++    await page.getByRole('button', { name: 'Yes, fill in' }).click();
++    /** Publish the document */
++    await page.getByRole('button', { name: 'Publish' }).click();
++    await findAndClose(page, 'Published document');
++    await navToHeader(page, ['Content Manager', 'Products'], 'Products');
++    await page.getByRole('combobox', { name: 'Select a locale' }).click();
++    await page.getByRole('option', { name: 'English (en)' }).click();
++
++    /**
++     * Navigate to Shop single type
++     */
++    await navToHeader(page, ['Content Manager', 'Shop'], 'UK Shop');
++
++    /**
++     * Switch to Spanish locale to create a new locale entry (empty form)
++     */
++    await page.getByRole('combobox', { name: 'Locales' }).click();
++    await page.getByRole('option', { name: 'Spanish (es)' }).click();
++
++    /**
++     * Open "More document actions" and click "Fill in from another locale"
++     */
++    await page.getByRole('button', { name: 'Fill in from another locale' }).click();
++    await page.getByRole('combobox', { name: 'Locale' }).click();
++    await page.locator('span').filter({ hasText: 'English (en)' }).first().click();
++    await page.getByRole('button', { name: 'Yes, fill in' }).click();
++
++    /**
++     * Verify the form is now filled with the English content and now the relation should be there
++     */
++    await expect(page.getByRole('textbox', { name: 'title' }).first()).toHaveValue('UK Shop');
++    // Check that the product relation is in the page
++    await expect(page.getByRole('button', { name: 'Nike Mens 23/24 Away Stadium' })).toBeVisible();
++
++    /**
++     * Third case: fill from another locale should retrieve non localized relations
++     */
++    await page.getByRole('link', { name: 'Article' }).click();
++    await page.getByRole('button', { name: 'Confirm' }).click();
++    await page.getByRole('combobox', { name: 'Select a locale' }).click();
++    await page.getByRole('option', { name: 'English (en)' }).click();
++    await clickAndWait(page, page.getByRole('gridcell', { name: 'West Ham post match analysis' }));
++
++    await page.getByRole('combobox', { name: 'Locales' }).click();
++    await page.getByRole('option', { name: 'Spanish (es)' }).click();
++    await page.getByRole('button', { name: 'Fill in from another locale' }).click();
++    await page.getByRole('combobox', { name: 'Locale' }).click();
++    await page.locator('span').filter({ hasText: 'English (en)' }).first().click();
++    await page.getByRole('button', { name: 'Yes, fill in' }).click();
++
++    /** We check that the relation is there after using the fill from another locale feature */
++    await expect(page.getByRole('button', { name: 'Coach Beard' })).toBeVisible();
++  });
++});

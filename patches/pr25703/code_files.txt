@@ -1,0 +1,13 @@
+packages/core/content-manager/admin/src/pages/EditView/components/FormInputs/Relations/Relations.tsx
+packages/plugins/i18n/admin/src/components/CMHeaderActions.tsx
+packages/plugins/i18n/admin/src/services/fillFromLocale.ts
+packages/plugins/i18n/admin/src/utils/clean.ts
+packages/plugins/i18n/server/src/controllers/content-types.ts
+packages/plugins/i18n/server/src/routes/admin.ts
+packages/plugins/i18n/server/src/services/fill-from-locale.ts
+packages/plugins/i18n/server/src/services/index.ts
+packages/plugins/i18n/server/src/utils/index.ts
+packages/plugins/i18n/server/src/validation/content-types.ts
+packages/plugins/i18n/shared/contracts/content-manager.ts
+tests/cli/tests/strapi/strapi/__snapshots__/routes-list.test.cli.js.snap
+tests/cli/tests/strapi/strapi/__snapshots__/services-list.test.cli.js.snap
