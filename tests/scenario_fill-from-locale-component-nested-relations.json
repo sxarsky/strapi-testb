@@ -1,0 +1,97 @@
+[
+  {
+    "Source": "192.168.65.1:39998",
+    "Destination": "localhost",
+    "RequestBody": "",
+    "ResponseBody": "{\"results\":[{\"documentId\":\"jrpc2ynqxabgg7o4boi85tc5\",\"id\":1,\"name\":\"Ted Lasso\",\"locale\":null}],\"pagination\":{\"page\":1,\"pageSize\":10,\"total\":3}}",
+    "RequestHeaders": {
+      "Content-Type": [
+        "application/json"
+      ],
+      "Authorization": [
+        "Bearer SKYRAMP_PLACEHOLDER_TOKEN"
+      ]
+    },
+    "ResponseHeaders": {
+      "Content-Type": [
+        "application/json"
+      ]
+    },
+    "Method": "GET",
+    "Path": "/content-manager/collection-types/api::author.author",
+    "QueryParams": {},
+    "StatusCode": 200,
+    "Port": 1337,
+    "Timestamp": "2026-04-13T04:30:55.143Z",
+    "Scheme": "http"
+  },
+  {
+    "Source": "192.168.65.1:39998",
+    "Destination": "localhost",
+    "RequestBody": "{\"title\":\"ComponentNestedArticleFFLTest\",\"content\":[],\"seo\":{\"title\":\"SEO Title FFL Test\",\"description\":\"SEO Description FFL Test\",\"indexable\":true},\"authors\":{\"connect\":[{\"documentId\":\"jrpc2ynqxabgg7o4boi85tc5\"}]}}",
+    "ResponseBody": "{\"documentId\":\"test-article-doc-id-ffl002\",\"id\":997,\"title\":\"ComponentNestedArticleFFLTest\",\"locale\":\"en\",\"seo\":{\"title\":\"SEO Title FFL Test\",\"description\":\"SEO Description FFL Test\",\"indexable\":true}}",
+    "RequestHeaders": {
+      "Content-Type": [
+        "application/json"
+      ],
+      "Authorization": [
+        "Bearer SKYRAMP_PLACEHOLDER_TOKEN"
+      ]
+    },
+    "ResponseHeaders": {
+      "Content-Type": [
+        "application/json"
+      ]
+    },
+    "Method": "POST",
+    "Path": "/content-manager/collection-types/api::article.article",
+    "QueryParams": {
+      "locale": [
+        "en"
+      ]
+    },
+    "StatusCode": 200,
+    "Port": 1337,
+    "Timestamp": "2026-04-13T04:30:55.143Z",
+    "Scheme": "http"
+  },
+  {
+    "Source": "192.168.65.1:39998",
+    "Destination": "localhost",
+    "RequestBody": "",
+    "ResponseBody": "{\"data\":{\"title\":\"ComponentNestedArticleFFLTest\",\"content\":[],\"seo\":{\"title\":\"SEO Title FFL Test\",\"description\":\"SEO Description FFL Test\",\"indexable\":true},\"authors\":{\"connect\":[{\"documentId\":\"jrpc2ynqxabgg7o4boi85tc5\"}],\"disconnect\":[]}}}",
+    "RequestHeaders": {
+      "Content-Type": [
+        "application/json"
+      ],
+      "Authorization": [
+        "Bearer SKYRAMP_PLACEHOLDER_TOKEN"
+      ]
+    },
+    "ResponseHeaders": {
+      "Content-Type": [
+        "application/json"
+      ]
+    },
+    "Method": "GET",
+    "Path": "/i18n/content-manager/get-fill-from-locale/api::article.article",
+    "QueryParams": {
+      "documentId": [
+        "test-article-doc-id-ffl002"
+      ],
+      "sourceLocale": [
+        "en"
+      ],
+      "targetLocale": [
+        "fr"
+      ],
+      "collectionType": [
+        "collection-types"
+      ]
+    },
+    "StatusCode": 200,
+    "Port": 1337,
+    "Timestamp": "2026-04-13T04:30:55.143Z",
+    "Scheme": "http"
+  }
+]

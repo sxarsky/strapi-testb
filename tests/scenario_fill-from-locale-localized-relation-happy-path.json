@@ -1,0 +1,153 @@
+[
+  {
+    "Source": "192.168.65.1:39998",
+    "Destination": "localhost",
+    "RequestBody": "",
+    "ResponseBody": "{\"results\":[{\"id\":1,\"name\":\"English (en)\",\"code\":\"en\",\"isDefault\":true}]}",
+    "RequestHeaders": {
+      "Content-Type": [
+        "application/json"
+      ],
+      "Authorization": [
+        "Bearer SKYRAMP_PLACEHOLDER_TOKEN"
+      ]
+    },
+    "ResponseHeaders": {
+      "Content-Type": [
+        "application/json"
+      ]
+    },
+    "Method": "GET",
+    "Path": "/i18n/locales",
+    "QueryParams": {},
+    "StatusCode": 200,
+    "Port": 1337,
+    "Timestamp": "2026-04-13T04:30:45.540Z",
+    "Scheme": "http"
+  },
+  {
+    "Source": "192.168.65.1:39998",
+    "Destination": "localhost",
+    "RequestBody": "{\"name\":\"TestCountryFFLEN\"}",
+    "ResponseBody": "{\"documentId\":\"test-country-doc-id-ffl001\",\"id\":999,\"name\":\"TestCountryFFLEN\",\"locale\":\"en\"}",
+    "RequestHeaders": {
+      "Content-Type": [
+        "application/json"
+      ],
+      "Authorization": [
+        "Bearer SKYRAMP_PLACEHOLDER_TOKEN"
+      ]
+    },
+    "ResponseHeaders": {
+      "Content-Type": [
+        "application/json"
+      ]
+    },
+    "Method": "POST",
+    "Path": "/content-manager/collection-types/api::country.country",
+    "QueryParams": {},
+    "StatusCode": 200,
+    "Port": 1337,
+    "Timestamp": "2026-04-13T04:30:45.540Z",
+    "Scheme": "http"
+  },
+  {
+    "Source": "192.168.65.1:39998",
+    "Destination": "localhost",
+    "RequestBody": "{\"name\":\"TestCountryFFLFR\"}",
+    "ResponseBody": "{\"documentId\":\"test-country-doc-id-ffl001\",\"id\":1000,\"name\":\"TestCountryFFLFR\",\"locale\":\"fr\"}",
+    "RequestHeaders": {
+      "Content-Type": [
+        "application/json"
+      ],
+      "Authorization": [
+        "Bearer SKYRAMP_PLACEHOLDER_TOKEN"
+      ]
+    },
+    "ResponseHeaders": {
+      "Content-Type": [
+        "application/json"
+      ]
+    },
+    "Method": "PUT",
+    "Path": "/content-manager/collection-types/api::country.country/test-country-doc-id-ffl001",
+    "QueryParams": {
+      "locale": [
+        "fr"
+      ]
+    },
+    "StatusCode": 200,
+    "Port": 1337,
+    "Timestamp": "2026-04-13T04:30:45.540Z",
+    "Scheme": "http"
+  },
+  {
+    "Source": "192.168.65.1:39998",
+    "Destination": "localhost",
+    "RequestBody": "{\"name\":\"TestProductFFLHappyPath\",\"isAvailable\":true,\"countries\":{\"connect\":[{\"documentId\":\"test-country-doc-id-ffl001\"}]}}",
+    "ResponseBody": "{\"documentId\":\"test-product-doc-id-ffl001\",\"id\":998,\"name\":\"TestProductFFLHappyPath\",\"isAvailable\":true,\"locale\":\"en\"}",
+    "RequestHeaders": {
+      "Content-Type": [
+        "application/json"
+      ],
+      "Authorization": [
+        "Bearer SKYRAMP_PLACEHOLDER_TOKEN"
+      ]
+    },
+    "ResponseHeaders": {
+      "Content-Type": [
+        "application/json"
+      ]
+    },
+    "Method": "POST",
+    "Path": "/content-manager/collection-types/api::product.product",
+    "QueryParams": {
+      "locale": [
+        "en"
+      ]
+    },
+    "StatusCode": 200,
+    "Port": 1337,
+    "Timestamp": "2026-04-13T04:30:45.540Z",
+    "Scheme": "http"
+  },
+  {
+    "Source": "192.168.65.1:39998",
+    "Destination": "localhost",
+    "RequestBody": "",
+    "ResponseBody": "{\"data\":{\"name\":\"TestProductFFLHappyPath\",\"isAvailable\":true,\"countries\":{\"connect\":[{\"documentId\":\"test-country-doc-id-ffl001\",\"locale\":\"fr\"}],\"disconnect\":[]}}}",
+    "RequestHeaders": {
+      "Content-Type": [
+        "application/json"
+      ],
+      "Authorization": [
+        "Bearer SKYRAMP_PLACEHOLDER_TOKEN"
+      ]
+    },
+    "ResponseHeaders": {
+      "Content-Type": [
+        "application/json"
+      ]
+    },
+    "Method": "GET",
+    "Path": "/i18n/content-manager/get-fill-from-locale/api::product.product",
+    "QueryParams": {
+      "documentId": [
+        "test-product-doc-id-ffl001"
+      ],
+      "sourceLocale": [
+        "en"
+      ],
+      "targetLocale": [
+        "fr"
+      ],
+      "collectionType": [
+        "collection-types"
+      ]
+    },
+    "StatusCode": 200,
+    "Port": 1337,
+    "Timestamp": "2026-04-13T04:30:45.540Z",
+    "Scheme": "http"
+  }
+]

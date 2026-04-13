@@ -1,0 +1,131 @@
+[
+  {
+    "Source": "192.168.65.1:39998",
+    "Destination": "localhost",
+    "RequestBody": "{\"name\":\"DZTestProductEN\",\"isAvailable\":true}",
+    "ResponseBody": "{\"documentId\":\"test-product-doc-id-ffl003\",\"id\":996,\"name\":\"DZTestProductEN\",\"isAvailable\":true,\"locale\":\"en\"}",
+    "RequestHeaders": {
+      "Content-Type": [
+        "application/json"
+      ],
+      "Authorization": [
+        "Bearer SKYRAMP_PLACEHOLDER_TOKEN"
+      ]
+    },
+    "ResponseHeaders": {
+      "Content-Type": [
+        "application/json"
+      ]
+    },
+    "Method": "POST",
+    "Path": "/content-manager/collection-types/api::product.product",
+    "QueryParams": {
+      "locale": [
+        "en"
+      ]
+    },
+    "StatusCode": 200,
+    "Port": 1337,
+    "Timestamp": "2026-04-13T04:31:04.553Z",
+    "Scheme": "http"
+  },
+  {
+    "Source": "192.168.65.1:39998",
+    "Destination": "localhost",
+    "RequestBody": "{\"name\":\"DZTestProductFR\",\"isAvailable\":true}",
+    "ResponseBody": "{\"documentId\":\"test-product-doc-id-ffl003\",\"id\":995,\"name\":\"DZTestProductFR\",\"isAvailable\":true,\"locale\":\"fr\"}",
+    "RequestHeaders": {
+      "Content-Type": [
+        "application/json"
+      ],
+      "Authorization": [
+        "Bearer SKYRAMP_PLACEHOLDER_TOKEN"
+      ]
+    },
+    "ResponseHeaders": {
+      "Content-Type": [
+        "application/json"
+      ]
+    },
+    "Method": "PUT",
+    "Path": "/content-manager/collection-types/api::product.product/test-product-doc-id-ffl003",
+    "QueryParams": {
+      "locale": [
+        "fr"
+      ]
+    },
+    "StatusCode": 200,
+    "Port": 1337,
+    "Timestamp": "2026-04-13T04:31:04.554Z",
+    "Scheme": "http"
+  },
+  {
+    "Source": "192.168.65.1:39998",
+    "Destination": "localhost",
+    "RequestBody": "{\"title\":\"DZTestShopEN\",\"content\":[{\"__component\":\"page-blocks.product-carousel\",\"title\":\"Featured Products\",\"products\":{\"connect\":[{\"documentId\":\"test-product-doc-id-ffl003\"}]}}]}",
+    "ResponseBody": "{\"documentId\":\"test-shop-doc-id-ffl003\",\"id\":994,\"title\":\"DZTestShopEN\",\"locale\":\"en\",\"content\":[{\"__component\":\"page-blocks.product-carousel\",\"id\":100,\"title\":\"Featured Products\"}]}",
+    "RequestHeaders": {
+      "Content-Type": [
+        "application/json"
+      ],
+      "Authorization": [
+        "Bearer SKYRAMP_PLACEHOLDER_TOKEN"
+      ]
+    },
+    "ResponseHeaders": {
+      "Content-Type": [
+        "application/json"
+      ]
+    },
+    "Method": "POST",
+    "Path": "/content-manager/collection-types/api::shop.shop",
+    "QueryParams": {
+      "locale": [
+        "en"
+      ]
+    },
+    "StatusCode": 200,
+    "Port": 1337,
+    "Timestamp": "2026-04-13T04:31:04.554Z",
+    "Scheme": "http"
+  },
+  {
+    "Source": "192.168.65.1:39998",
+    "Destination": "localhost",
+    "RequestBody": "",
+    "ResponseBody": "{\"data\":{\"title\":\"DZTestShopEN\",\"content\":[{\"__component\":\"page-blocks.product-carousel\",\"title\":\"Featured Products\",\"products\":{\"connect\":[{\"documentId\":\"test-product-doc-id-ffl003\",\"locale\":\"fr\"}],\"disconnect\":[]}}]}}",
+    "RequestHeaders": {
+      "Content-Type": [
+        "application/json"
+      ],
+      "Authorization": [
+        "Bearer SKYRAMP_PLACEHOLDER_TOKEN"
+      ]
+    },
+    "ResponseHeaders": {
+      "Content-Type": [
+        "application/json"
+      ]
+    },
+    "Method": "GET",
+    "Path": "/i18n/content-manager/get-fill-from-locale/api::shop.shop",
+    "QueryParams": {
+      "documentId": [
+        "test-shop-doc-id-ffl003"
+      ],
+      "sourceLocale": [
+        "en"
+      ],
+      "targetLocale": [
+        "fr"
+      ],
+      "collectionType": [
+        "collection-types"
+      ]
+    },
+    "StatusCode": 200,
+    "Port": 1337,
+    "Timestamp": "2026-04-13T04:31:04.554Z",
+    "Scheme": "http"
+  }
+]
