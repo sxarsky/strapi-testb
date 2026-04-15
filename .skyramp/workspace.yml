@@ -1,0 +1,8 @@
+# Skyramp workspace config — minimal scoping for TestBot endpoint discovery.
+# Added to steer discovery toward the running Strapi Content API and away from
+# OpenAPI test-fixture routes declared under packages/core/openapi/__tests__/fixtures/.
+
+api:
+  baseUrl: http://localhost:1337
+
+testDirectory: tests/skyramp
